@@ -1,0 +1,4 @@
+fastapi==0.135.3
+uvicorn[standard]
+tensorflow==2.21.0
+scikit-learn==1.8.0
