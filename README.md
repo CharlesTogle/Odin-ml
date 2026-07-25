@@ -1,12 +1,75 @@
 # Odin ML
 
-Python microservice for machine learning APIs and inference.
+Python microservice for machine learning APIs and inference, plus the complete model development pipeline for the Odin thesis.
 
-This repository currently contains:
+## What's Here
 
-- `app/main.py`: FastAPI app entrypoint
-- `requirements.txt`: runtime Python dependencies
-- `requirements-dev.txt`: development and test dependencies
+| Directory | Purpose |
+|-----------|---------|
+| `app/` | FastAPI microservice for model serving |
+| `scripts/` | Data collection, preprocessing, and analysis pipeline |
+| `docs/` | ML design documents, feature specs, preprocessing docs |
+| `datasets/raw/` | FIES 2023, PSA, BSP source data (CSV input) |
+| `datasets/processed/` | Preprocessed raw feature matrices (Parquet) |
+| `datasets/engineered/` | Engineered feature matrices (Parquet) |
+| `synth/` | Generated personas and transactions (Parquet) |
+| `figures/` | EDA plots and analysis outputs |
+
+## Model Development Pipeline
+
+```
+FIES 2023 Data → collector.py → preprocessor.py → feature_engineering.py → eda.py → [train scripts]
+     ↓                ↓               ↓                    ↓                  ↓
+  datasets/raw/    datasets/    synth/ + datasets/    datasets/          figures/
+                  unprocessed/    processed/          engineered/
+```
+
+### Step 1: Collect Data
+
+```bash
+python scripts/collector.py \
+  --input datasets/raw/ \
+  --output datasets/unprocessed/
+```
+
+Converts raw CSV datasets to Parquet format for pipeline consumption.
+
+### Step 2: Preprocess Data
+
+```bash
+python scripts/preprocessor.py \
+  --input datasets/unprocessed/puf.parquet \
+  --output datasets/processed/
+```
+
+Runs synthesis (persona + transaction generation) internally, then splits personas into train/val/test and exports raw feature matrices (metadata + 11 raw columns). No feature engineering or normalization — that happens in the next step.
+
+### Step 3: Engineer Features
+
+```bash
+python scripts/feature_engineering.py \
+  --input datasets/processed/ \
+  --output datasets/engineered/
+```
+
+Computes 17 derived financial features, cyclical encoding, interaction features, redundant feature removal, optional feature selection and PCA. Reads raw data from `datasets/processed/`, outputs engineered matrices to `datasets/engineered/`.
+
+### Step 4: Run Exploratory Data Analysis
+
+```bash
+python scripts/eda.py \
+  --input datasets/processed/ \
+  --output figures/ \
+  --seed 42
+```
+
+Produces a comprehensive EDA report with static plots covering distributions, correlations, class balance, temporal patterns, anomalies, and data quality. Works with both raw data (`datasets/processed/`) and engineered data (`datasets/engineered/`).
+
+```bash
+python scripts/train_fbp.py --input datasets/processed/ --output models/fbp
+python scripts/train_forecaster.py --input datasets/processed/ --output models/forecaster
+python scripts/train_anomaly.py --input datasets/processed/ --output models/anomaly
+```
 
 ## Tech Stack
 
@@ -15,8 +78,10 @@ This repository currently contains:
 - Uvicorn
 - TensorFlow `2.21.0`
 - scikit-learn `1.8.0`
-- Pytest
-- HTTPX
+- pandas, numpy
+- pyarrow (Parquet support)
+- matplotlib, seaborn (visualization)
+- Pytest, HTTPX
 
 ## Prerequisites
 
@@ -30,10 +95,32 @@ Install these before working in this repository:
 
 ```text
 odin-ml/
-├─ .gitignore
 ├─ app/
-│  └─ main.py
-├─ README.md
+│  └─ main.py                    # FastAPI entrypoint
+├─ scripts/
+│  ├─ collector.py               # CSV to Parquet conversion
+│  ├─ generate_personas.py       # 14-archetype persona generator
+│  ├─ generate_transactions.py   # 12-month transaction generator
+│  ├─ preprocessor.py            # Synthesis + splitting + raw data export
+│  ├─ feature_engineering.py     # 17 derived features + encoding + selection + PCA
+│  ├─ synthesizer.py             # Deprecated — use preprocessor.py
+│  ├─ eda.py                     # Exploratory data analysis (works with raw or engineered)
+│  └─ fies_columns.py            # FIES variable ID mapping
+├─ docs/
+│  ├─ README.md                  # Documentation index
+│  ├─ 1_problem-statement/       # MDD and module designs
+│  ├─ 2_data-collection/         # FIES dictionary
+│  ├─ 3_data-preprocessing/      # Preprocessing pipeline docs
+│  ├─ 4_eda/                     # EDA report and analysis
+│  ├─ prerequisites/             # Feature sets, validation, deployment
+│  └─ standards/                 # Coding standards
+├─ datasets/
+│  ├─ raw/                       # FIES, PSA, BSP source data (CSV)
+│  ├─ unprocessed/               # Parquet format of raw data (collector output)
+│  ├─ processed/                 # Preprocessed raw feature matrices (Parquet)
+│  └─ engineered/                # Engineered feature matrices (Parquet)
+├─ synth/                        # Generated personas + transactions (Parquet)
+├─ figures/                      # EDA plots and analysis outputs
 ├─ requirements.txt
 └─ requirements-dev.txt
 ```

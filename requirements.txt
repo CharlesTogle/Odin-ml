@@ -1,4 +1,10 @@
 fastapi==0.135.3
 uvicorn[standard]
-tensorflow==2.21.0
+tensorflow==2.21.0 # Latest stable version of Python that can support TensorFlow is 3.13.14
 scikit-learn==1.8.0
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+openpyxl>=3.1.0

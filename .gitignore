@@ -29,6 +29,22 @@ dist/
 !.env.example
 !.env*.example
 
+# EDA generated plots (regenerate with scripts/eda.py)
+figures/
+
+# Generated pipeline outputs (regenerate with training scripts)
+training/datasets/
+training/synth/
+training/training/
+training/models/
+
+# Raw datasets (regenerate with training scripts)
+raw-datasets/
+
+# Synthesized data (regenerate with training scripts)
+synth-personas/
+synth-transactions/
+
 # Platform and editor noise
 .DS_Store
 Thumbs.db
