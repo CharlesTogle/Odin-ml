@@ -1,9 +1,10 @@
 # Model Design Document - PFP Classifier
-**Document Version:** v1.1  
+**Document Version:** v1.3  
 **Module Name:** Personal Financial Profile Classifier  
 **Author(s):** Guevarra 
-**Date:** 2026-07-16  
+**Date:** 2026-07-26  
 **Status:** Draft
+**Companion Documents:** `bsp-fies-crosswalk.md`, `synthetic-injection-rules.md`
 
 ---
 
@@ -67,7 +68,7 @@
 *Define what data is required to train this module, without committing to the final dataset.*
 
 - **Sourcing Strategy:** 
-  - **Primary:** Synthetic personas generated from PSA 2023 FIES microdata (income/expense totals, family size and weight, population weight, urban/rural, per-capita income, decile ranking), disaggregated to the individual level and augmented with granular, time-stamped transaction data via a shared persona-generation methodology
+  - **Primary:** Archetype-driven synthetic personas. Archetype segmentation (12 total: 8 canonical PFP octant combinations + up to 4 additional edge-case archetypes) is informed by the **BSP Consumer Finance Report**; each archetype is then parameterized and expanded into granular, time-stamped transaction data using **PSA 2023 FIES microdata** (income/expense totals, family size and weight, population weight, urban/rural, per-capita income, decile ranking), disaggregated to the individual level, via a shared persona-generation methodology. See `bsp-fies-crosswalk.md` for the field-level mapping between the two sources.
   - **Secondary:** Historical anonymized transaction data from thesis prototype users, once available, used to validate synthetic-to-real generalization
   - **Tertiary:** Questionnaire response data from onboarding, used as a secondary/validation label source, not the primary ground truth
 
@@ -84,6 +85,7 @@
   - At least 500 labeled personas per class (4,000 total for 8 classes), each with a full 3-month "mature" transaction history for ground-truth label derivation
   - Each mature persona additionally sampled at multiple partial-window cuts (e.g., first 2 weeks, first 4 weeks, first 6 weeks) to train and evaluate candidates under the realistic partial-data condition described in Section 1
   - Explicit persona-generation targets set per PFP octant to avoid underrepresenting classes likely to be rarer in the general population (e.g., Variable-Obligated-Tight)
+  - **[NOTE]** If BSP segment analysis confirms one or more edge-case archetypes (beyond the 8 octants), this module's ground-truth formula must state whether such personas resolve to their nearest octant or are excluded from Classifier training entirely (they may still be valid Forecaster/Anomaly Detector personas). See `bsp-fies-crosswalk.md` §3.3.
 
 - **Labeling Strategy:** 
   - **Primary (ground truth):** Deterministic label = score/threshold formula applied to each persona's full, mature 3-month window. This is computed automatically, not manually annotated, since income stability, obligation weight, and financial tolerance are themselves defined as computable scores with fixed thresholds.
@@ -170,24 +172,24 @@
 ## 6. Data Modeling Strategy (Algorithm Selection & Baseline)
 *Define the tiered approach to modeling. **Crucially**, do not select the final model here; define the selection criteria.*
 
-- **Tier 0: Naive Baseline (Sanity Floor):** 
+- **Tier 0: Naive Baseline (Sanity Floor):** `[Cost: Low]`
   - Majority-class predictor (always predicts the most frequent PFP class in the training persona set)
   - Purpose: The absolute floor any candidate — rule-based or learned — must clear to be considered informative at all
 
-- **Tier 1: Deterministic Rule-Based Classifier:** 
+- **Tier 1: Deterministic Rule-Based Classifier:** `[Cost: Low]`
   - Direct application of the income-stability, obligation-weight, and financial-tolerance score/threshold definitions to whatever transaction window is available (full or partial), producing the 3D octant label
   - Threshold values are calibrated on the training persona set (e.g., via ROC-based cutoff selection) rather than fixed a priori, so the comparison against learned candidates is fair
 
-- **Tier 2: Intermediate Learned Model:** 
+- **Tier 2: Intermediate Learned Model:** `[Cost: Low]`
   - Logistic Regression (multi-class) with L2 regularization
   - Purpose: Simplest learned candidate; establishes whether any learning signal exists beyond the deterministic rule at all
 
-- **Tier 3: Ensemble/Margin-Based Models:** 
+- **Tier 3: Ensemble/Margin-Based Models:** `[Cost: Medium]`
   - Random Forest Classifier
   - Support Vector Machine (RBF kernel)
   - Purpose: Test whether ensemble/non-linear methods can exploit the injected indirect/behavioral features better than a threshold rule or linear model
 
-- **Tier 4: Advanced Model:** 
+- **Tier 4: Advanced Model:** `[Cost: Medium-High]`
   - XGBoost Classifier (gradient boosting, handles class imbalance well)
   - Multi-layer Perceptron (if deep learning proves necessary)
   - Justified only if Tiers 1–3 fail to meet the KPI
@@ -308,15 +310,46 @@
 ## 11. Timeline, Dependencies, and Decision Gates
 *Break down the 10 phases into a realistic schedule for the thesis project.*
 
+### Shared Data Phase (All Modules)
 | Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
 | :--- | :--- | :--- | :--- |
-| 2 & 3 (Data) | Cleaned, versioned dataset | 16 days | Persona set passes expert + distributional validation; minimum 4,000 labeled personas across partial-window cuts |
+| 1–3 (Problem + Data) | Problem statement, cleaned dataset, synthetic personas | 16 days | Persona set passes expert + distributional validation; minimum 4,000 labeled personas for PFP, 12,000 personas for Forecaster/Anomaly; archetypes validated against BSP CFS (see `bsp-fies-crosswalk.md`) |
+
+### PFP Classifier Module (Picks up from shared Data)
+| Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
+| :--- | :--- | :--- | :--- |
 | 4 & 5 (EDA & Features) | Feature matrix ready; EDA report | 10 days | EDA confirms class separability on both full and partial windows; feature importance identified |
 | 6 & 7 (Modeling & Eval) | Tier 0-4 comparative results | 14 days | Tier 0 (majority) beaten by all other tiers; Tier 1 (rule) and Tier 3 (Random Forest) both evaluated on identical held-out personas |
 | 8 (Optimization) | Final selected candidate (rule-based or learned) | 7 days | Selected candidate meets KPI: Macro-F1 > 0.80; selection documented against the pre-registered margin from Section 7 |
 | 9 & 10 (Deploy & Monitor) | Packaged module + monitoring setup | 10 days | Integration test passes; monitoring metrics configured |
 
-**Total Estimated Duration: 57 days (~2 months)**
+**PFP Module Duration: 41 days (from feature engineering onward)**
+
+### Forecaster Module (Picks up from shared Data)
+| Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
+| :--- | :--- | :--- | :--- |
+| 4 & 5 (EDA & Features) | Feature matrix ready; EDA report | 10 days | EDA confirms weekly/semi-monthly/monthly seasonality; ACF/PACF analysis complete; SHAP feature importance identified |
+| 6 & 7 (Modeling & Eval) | Baseline + Intermediate results | 14 days | ARIMA baseline established; XGBoost/LightGBM beats ARIMA by >20% MAPE reduction [Bhavana et al., 2025] |
+| 8 (Optimization) | Final optimized model | 10 days | Final model meets KPI: MAPE < 15% at total level; researcher-defined targets |
+| 9 & 10 (Deploy & Monitor) | Packaged module + monitoring setup | 10 days | Integration test passes; drift detection (ADWIN/CUSUM) configured; monitoring metrics configured |
+
+**Forecaster Module Duration: 44 days (from feature engineering onward)**
+
+### Anomaly Detector Module (Picks up from shared Data)
+| Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
+| :--- | :--- | :--- | :--- |
+| 4 & 5 (EDA & Features) | Feature matrix ready; EDA report | 7 days | EDA confirms anomaly patterns; feature importance identified; temporal patterns validated |
+| 6 & 7 (Modeling & Eval) | Baseline + Intermediate results | 14 days | IQR baseline established; Isolation Forest beats IQR by >50% F1 improvement |
+| 8 (Optimization) | Final optimized model | 10 days | Final model meets KPI: F1 ≥ 0.85, Recall ≥ 0.85, FPR ≤ 0.05 [Huang A. et al., 2025; Al Rafi, 2024] |
+| 9 & 10 (Deploy & Monitor) | Packaged module + monitoring setup | 10 days | Integration test passes; drift detection (ADWIN/EDDM) configured; monitoring metrics configured |
+
+**Anomaly Detector Module Duration: 41 days (from feature engineering onward)**
+
+### Critical Path
+- **Shared Data Phase (16 days)** → Feature engineering triplicates → Modules run in parallel
+- **Longest module:** Forecaster (44 days from feature engineering)
+- **Total critical path:** 16 + 44 = **60 days (~2 months)**
+- PFP (41 days) and Anomaly (41 days) finish before Forecaster; their deploy/monitor phases can overlap with Forecaster optimization
 
 ---
 
@@ -331,15 +364,17 @@
 - **Model-Level Concept Drift:** The relationship between indirect/behavioral features and the ground-truth PFP label may shift as the target-user economy changes (inflation, minimum wage adjustments, growth of gig work). Monitor for this via the Section 10 drift metrics (PSI on input feature distributions, rolling per-class accuracy) applied specifically to the deployed candidate, whichever tier that turns out to be.
 - **Key Assumption (synthetic-to-real gap):** All KPI figures in this document are measured on synthetic personas. Generalization to real users is untested until real prototype-user data is available (Section 2, Secondary source) and is treated as an explicit limitation of this design, not a guarantee.
 - **Key Assumption (injected feature realism):** Indirect/behavioral features are manually injected into personas based on RRL citations and financial-expert judgment, not observed in FIES. Any performance gap between Tier 1 and the learned tiers is only as trustworthy as these injection rules; this is documented as a threat to validity rather than assumed away.
+- **Key Assumption (BSP-FIES crosswalk):** Archetype segmentation is sourced from the BSP Consumer Finance Report, while granular transaction data is sourced from PSA FIES microdata — two surveys with different units of analysis and sampling frames. Any mismatch between a BSP-defined archetype and the FIES-derived income/expense profile assigned to it is a threat to validity, not a confirmed equivalence; the crosswalk documentation (`bsp-fies-crosswalk.md`) exists to make this mapping explicit and auditable rather than implicit.
 
 ---
 
 # Model Design Document - Forecaster
-**Document Version:** v2.1  
+**Document Version:** v2.3  
 **Module Name:** Forecaster  
 **Author(s):** Guevarra
-**Date:** 2026-07-16  
+**Date:** 2026-07-26  
 **Status:** Draft
+**Companion Documents:** `bsp-fies-crosswalk.md`, `synthetic-injection-rules.md`
 
 ---
 
@@ -400,14 +435,16 @@
 
 - **Quantitative Objectives (KPIs):**
   - **Primary:**
-    - **MAPE** (Mean Absolute Percentage Error) < 5% at total level (Literature benchmark: NNAR achieved 2.67%, CNN-LSTM achieved 2.72% [Krstev et al., 2023; Ullah et al., 2024])
-    - **MAPE** < 10% at category group level
-    - **MAPE** < 15% at category level
+    - **MAPE** (Mean Absolute Percentage Error) < 15% at total level
+      - **⚠ Domain mismatch note:** The originally cited benchmarks (NNAR 2.67%, CNN-LSTM 2.72% [Krstev et al., 2023; Ullah et al., 2024]) are from electricity load forecasting and generic time-series datasets, not household/personal finance. These benchmarks are not directly comparable to Odin's synthetic Filipino persona data. The 15% target is a researcher-defined fallback based on: (a) household expense forecasting is inherently noisier than electricity load forecasting due to irregular spending patterns, discretionary variability, and income volatility; (b) Odin's data is synthetic with injected behavioral features, adding a layer of approximation; (c) realistic targets for personal finance forecasting in developing-economy contexts should account for higher income volatility and irregular transaction patterns.
+    - **MAPE** < 20% at category group level
+    - **MAPE** < 25% at category level
   - **Secondary:**
-    - **R²** > 0.85 (Literature benchmark: Ensemble achieved R² = 0.9921 [Sonkavde et al., 2023])
-    - **RMSE** < 15% of mean daily spending
+    - **R²** > 0.70
+      - **⚠ Domain mismatch note:** The originally cited benchmark (Ensemble R² = 0.9921 [Sonkavde et al., 2023]) is from stock price prediction, a fundamentally different domain. Household expense forecasting has inherently lower R² due to higher variance in discretionary spending. The 0.70 target is a researcher-defined fallback.
+    - **RMSE** < 25% of mean daily spending
     - **Inference latency:** P95 < 1s (LSTM inference + post-processing)
-    - **Compute budget:** RAM < 1GB, GPU optional (Literature: tree-based models are 126,934% faster to train than deep learning [Hall, 2025])
+    - **Compute budget:** RAM < 1GB, GPU optional [Hall, 2025]
   - **Business Metrics:**
     - Forecast error reduction of at least 22% compared to heuristic baseline (Literature: ML models reduce prediction errors by 22-33% compared to heuristic forecasts [Bhavana et al., 2025])
 
@@ -419,7 +456,7 @@
 *Define what data is required to train this module, without committing to the final dataset.*
 
 - **Sourcing Strategy:**
-  - **Primary:** Synthetic persona/transaction pipeline — 12,000 personas generated from PSA 2023 FIES NCR microdata, each with 12 months of daily transaction history (~144,000 rows). Personas are parameterized by FIES income/expense deciles, employment type, and PFP archetype.
+  - **Primary:** Archetype-driven synthetic persona/transaction pipeline, shared with the PFP Classifier and Anomaly Detector through preprocessing/EDA and triplicated at feature engineering for this module's specification — 12,000 personas across 12 archetypes (8 PFP octants + up to 4 BSP-informed edge cases; see `bsp-fies-crosswalk.md`), each with daily transaction history. Archetype segmentation is informed by the **BSP Consumer Finance Report**; income/expense deciles, employment type, and other granular transaction parameters are drawn from **PSA 2023 FIES NCR microdata**.
   - **Secondary:** Historical anonymized transaction data from thesis prototype users, once available — used to validate synthetic-to-real generalization
   - **Tertiary:** PSA 2023 FIES microdata (source for persona parameterization, not used directly for training)
 
@@ -431,7 +468,7 @@
   - **Demographic metadata:** Age, employment type, income range, PFP (for cold-start)
 
 - **Minimum Viable Dataset Size:**
-  - 12,000 personas (1,000 per archetype × 12 archetypes), each with a full 3-month "mature" transaction history
+  - 12,000 personas (1,000 per archetype × 12 archetypes), each with a full 12-month transaction history
   - ~144,000 monthly summary rows (12,000 personas × 12 months)
   - At least 500 transactions per category for category-level modeling
 
@@ -481,7 +518,7 @@
   - Autocorrelation function (ACF) and partial autocorrelation (PACF) - critical for understanding temporal dependencies [Song et al., 2025]
   - Daily spending distribution (mean, variance, skewness)
   - Temporal patterns: Day-of-week effects, month-of-year effects
-  - Stationarity tests (ADF test for unit root) - literature notes non-stationarity is the norm in financial data [Paper 9, 2025]
+  - Stationarity tests (ADF test for unit root) - literature notes non-stationarity is the norm in financial data [CITATION NOT FOUND — verify or remove claim]
   - Seasonal decomposition plots (trend, seasonal, residual components)
 
 - **Correlation Targets:**
@@ -502,7 +539,7 @@
   - **Lag features:** Previous 1, 7, 14, 15, 30, 60, 90 days of spending - literature shows temporal order is critical (disrupting order causes up to 1092% MSE increase [Song et al., 2025])
   - **Rolling statistics:** 7-day, 14-day, 15-day, 30-day moving averages and standard deviations
   - **Calendar features:** Payday indicators, holiday indicators, payday proximity
-  - **RFM metrics:** Recency, Frequency, Monetary value - identified as most predictive features [Ahmed & Dey, 2023; Paper 32]
+  - **RFM metrics:** Recency, Frequency, Monetary value - identified as most predictive features [Ahmed & Dey, 2023; CITATION NOT FOUND — verify or remove claim]
 
 - **Derived Features:**
   - Day-over-day change (momentum)
@@ -533,25 +570,25 @@
 ## 6. Data Modeling Strategy (Algorithm Selection & Baseline)
 *Define the tiered approach to modeling. **Crucially**, do not select the final model here; define the selection criteria.*
 
-- **Tier 1: Baseline Model (Must-Have):**
+- **Tier 1: Baseline Model (Must-Have):** `[Cost: Low]`
   - **ARIMA** (Auto-Regressive Integrated Moving Average) - literature: superior for small, linear, or strongly seasonal datasets [Kontopoulou et al., 2023]
   - **ETS** (Exponential Smoothing) - literature: strong baseline for seasonal data (MAPE 3.28%) [Krstev et al., 2023]
   - **Prophet** - literature: achieved lowest weighted error (10.456) vs ARIMA, LSTM [Mariano & Monreal, 2025]
   - Purpose: Establish statistical model baseline
 
-- **Tier 2: Intermediate Model:**
+- **Tier 2: Intermediate Model:** `[Cost: Medium]`
   - **XGBoost Regressor** with lag and calendar features - literature: XGBoost outperforms ARIMA and LSTM in some settings (MSE 360.0) [Sonkavde et al., 2023]
-  - **LightGBM** - literature: provides best balance between forecasting accuracy and computational efficiency [Paper 85]; tree-based models are 126,934% faster to train than deep learning [Hall, 2025]
+  - **LightGBM** - literature: provides best balance between forecasting accuracy and computational efficiency [CITATION NOT FOUND — verify or remove claim]; tree-based models are 126,934% faster to train than deep learning [Hall, 2025]
   - **Random Forest Regressor** - literature: 0.9208 R² for poverty prediction [Onsay & Rabajante, 2024]
   - Purpose: Tree-based ensemble performance; fast training for mobile-first constraints
 
-- **Tier 3: Advanced Model:**
-  - **LSTM** - literature: LSTM achieved 4.82% MAPE vs 20.97% for ARIMA [Ao & Fayek, 2023]; effective for capturing long-term dependencies [Casolaro et al., 2023]
-  - **GRU** (Gated Recurrent Unit) - literature: offers comparable accuracy with lower compute than LSTM [Singh U. et al., 2025]
-  - **BiLSTM** (Bidirectional LSTM) - literature: captures both forward and backward dependencies
+- **Tier 3: Advanced Model:** `[Cost: High]`
+  - **PyTorch LSTM** - literature: LSTM achieved 4.82% MAPE vs 20.97% for ARIMA [Ao & Fayek, 2023]; effective for capturing long-term dependencies [Casolaro et al., 2023]. Implemented via `torch.nn.LSTM` for CPU-efficient training without CUDA dependency.
+  - **PyTorch GRU** (Gated Recurrent Unit) - literature: offers comparable accuracy with lower compute than LSTM [Singh U. et al., 2025]. Implemented via `torch.nn.GRU`.
+  - **PyTorch BiLSTM** (Bidirectional LSTM) - literature: captures both forward and backward dependencies. Implemented via `torch.nn.LSTM(bidirectional=True)`.
   - **Transformer-based variants** (if needed) - literature: PatchTST achieves 23% lower MSE than Informer with 60% less GPU memory [Song et al., 2025]
-  - **Hybrid Models** - literature: ARIMA-NARNN reduced RMSE by 35.3% vs ARIMA alone [Kontopoulou et al., 2023]; LSTM-Logistic Regression achieved AUC-ROC of 0.91 [Paper 65, 2025]
-  - Justification: LSTM is specified in the title; handles sequential dependencies and long-term patterns
+  - **Hybrid Models** - literature: ARIMA-NARNN reduced RMSE by 35.3% vs ARIMA alone [Kontopoulou et al., 2023]; LSTM-Logistic Regression achieved AUC-ROC of 0.91 [CITATION NOT FOUND — verify or remove claim]
+  - Justification: LSTM is specified in the title; PyTorch chosen over TensorFlow for CPU-efficient training without CUDA dependency; handles sequential dependencies and long-term patterns
 
 - **Selection Criteria:**
   - Lowest MAPE within latency budget
@@ -573,13 +610,13 @@
   - **RMSE** (Root Mean Square Error) - literature: penalizes large errors heavily [Ullah et al., 2024]
   - **MAE** (Mean Absolute Error) - literature: robust, intuitive metric [Bhavana et al., 2025]
   - **Inference time** (P95 latency) - literature: critical for mobile-first applications [Hall, 2025]
-  - **Model size** (MB) - literature: 91% of ML models degrade in production, often within days [Paper 97, 2025]
+  - **Model size** (MB) - literature: 91% of ML models degrade in production, often within days [CITATION NOT FOUND — verify or remove claim]
 
 - **Validation Strategy:**
   - **Time-series split:** Training set = first 70% of timeline, Validation set = next 15%, Test set = last 15%
-  - **Walk-forward validation:** Training on increasing windows, evaluating one step ahead - literature: recommended for time series to prevent information leakage [Paper 9, 2025]
+  - **Walk-forward validation:** Training on increasing windows, evaluating one step ahead - literature: recommended for time series to prevent information leakage [CITATION NOT FOUND — verify or remove claim]
   - **Rolling forecast evaluation:** Forecast N days, compare to actual, roll forward
-  - **Purged cross-validation:** To prevent information leakage [Paper 60, 2025]
+  - **Purged cross-validation:** To prevent information leakage [CITATION NOT FOUND — verify or remove claim]
 
 - **Confusion Matrix Analysis:**
   - Not applicable for regression; analyze:
@@ -597,7 +634,7 @@
   - **Bayesian Optimization** - if compute budget allows
   - **Grid Search** - for tree-based models with limited hyperparameters
 
-- **Hyperparameter Space for LSTM:**
+- **Hyperparameter Space for PyTorch LSTM/GRU:**
   - `n_layers`: [1, 2, 3]
   - `n_units`: [32, 64, 128, 256] - literature: GRU offers comparable accuracy with lower compute [Singh U. et al., 2025]
   - `dropout`: [0.1, 0.2, 0.3]
@@ -605,10 +642,13 @@
   - `learning_rate`: [0.001, 0.01]
   - `sequence_length`: [7, 14, 15, 30, 60] (lookback window) - literature: lookback window of 24-336 time steps [Song et al., 2025; Ullah et al., 2024]
   - `activation`: ['tanh', 'relu']
+  - `bidirectional`: [True, False] (for BiLSTM)
+  - `optimizer`: ['adam', 'sgd'] (PyTorch optimizers)
+  - `weight_decay`: [0, 1e-5, 1e-4] (L2 regularization)
 
 - **Hyperparameter Space for XGBoost/LightGBM:**
   - `n_estimators`: [100, 200, 500]
-  - `max_depth`: [3, 5, 7, 10] - literature: XGBoost achieved high F1 (0.680) and AUC (0.872) [Paper 14, 2025]
+  - `max_depth`: [3, 5, 7, 10] - literature: XGBoost achieved high F1 (0.680) and AUC (0.872) [CITATION NOT FOUND — verify or remove claim]
   - `learning_rate`: [0.01, 0.1, 0.3]
   - `min_child_weight`: [1, 3, 5]
   - `subsample`: [0.8, 0.9, 1.0]
@@ -618,7 +658,7 @@
   - **Weighted averaging** of LSTM and XGBoost predictions - literature: ensemble techniques generally provide superior performance over standalone models [Sonkavde et al., 2023]
   - **Stacking:** Linear regression meta-model on LSTM + XGBoost outputs
   - **Voting ensemble** of multiple models - literature: Voting Ensemble achieved highest R² (78.11%) [Thakur & Jadhav, 2025]
-  - **Hybrid ARIMA-LSTM** - literature: hybrid frameworks improve forecasting robustness by combining linear and non-linear modeling [Paper 53, 2025]
+  - **Hybrid ARIMA-LSTM** - literature: hybrid frameworks improve forecasting robustness by combining linear and non-linear modeling [CITATION NOT FOUND — verify or remove claim]
   - Tested only if single model plateaus below KPI
 
 - **Optimization Budget:**
@@ -638,7 +678,8 @@
   - Lightweight inference runtime (<500MB RAM) for mobile-first constraints [Hall, 2025]
 
 - **Artifact Delivery:**
-  - **LSTM weights:** `.h5` or `.pth` format
+  - **PyTorch LSTM/GRU weights:** `.pth` format (PyTorch state dict)
+  - **scikit-learn models:** `.joblib` format (Random Forest, XGBoost, LightGBM)
   - **Preprocessing pipeline:** `.pkl` or `.joblib`
   - **Scaler and feature transformer:** serialized as above
   - **Model version metadata:** training data hash, performance metrics, creation date
@@ -648,13 +689,13 @@
   - **Containerized API service** (FastAPI preferred for async support) - literature: inference latency critical for user experience [Hall, 2025]
   - Called by mobile app via REST API
   - Dependency injection for model loading at startup
-  - **Lightweight screening at edge** - detect potential concept drift before sending to cloud [Paper 26, 2025]
+  - **Lightweight screening at edge** - detect potential concept drift before sending to cloud [CITATION NOT FOUND — verify or remove claim]
 
 - **Deployment Candidates:**
   - **Docker container** (preferred for reproducibility)
   - **Serverless function** (if latency requirements can be met)
   - **Decision:** Docker on dedicated instance with GPU optional; fallback to CPU-only for cost optimization
-  - **Mobile-first:** Consider exporting GRU model to TensorFlow Lite for on-device inference [Hall, 2025]
+  - **Mobile-first:** Consider exporting GRU model via PyTorch Mobile for on-device inference [Hall, 2025]
 
 ---
 
@@ -662,14 +703,14 @@
 *Define how we will know the module is degrading over time, without specifying the monitoring tool.*
 
 - **Metrics to Track Post-Deployment:**
-  - *Input Drift:* Monitor distribution changes in feature values (lagged spending, calendar features) - literature: use Population Stability Index (PSI) with threshold 10% [Paper 9, 2025]
+  - *Input Drift:* Monitor distribution changes in feature values (lagged spending, calendar features) - literature: use Population Stability Index (PSI) with threshold 10% [CITATION NOT FOUND — verify or remove claim]
   - *Output Drift:* Monitor prediction confidence intervals and forecast variance
   - *Performance:* Compare forecasts to actuals (MAPE, RMSE) on weekly basis
-  - *Concept Drift:* Detect using ADWIN, DDM, or Page-Hinkley - literature: 91% of ML models degrade in production [Paper 97, 2025]
+  - *Concept Drift:* Detect using ADWIN, DDM, or Page-Hinkley - literature: 91% of ML models degrade in production [CITATION NOT FOUND — verify or remove claim]
 
 - **Drift Detection Methods:**
   - **Hybrid detection:** CUSUM for abrupt drift + moving average for gradual drift - literature: detection delay 31.2 instances for abrupt, 64.8 for gradual [Yashwanth et al., 2023]
-  - **SEED and STEPD** - literature: consistently outperform other drift detectors [Paper 34, 2025]
+  - **SEED and STEPD** - literature: consistently outperform other drift detectors [CITATION NOT FOUND — verify or remove claim]
   - **Adaptive thresholding** - literature: adjusts sensitivity based on stream volatility [Yashwanth et al., 2023]
 
 - **Retraining Triggers:**
@@ -679,7 +720,7 @@
   - **Severity-aware retraining:** Quantile transformation reduces unnecessary retraining - literature: 93% of features exhibited significant drift [Shakhovska & Pukach, 2025]
 
 - **Adaptation Strategies:**
-  - **Sliding-window retraining** - literature: improves AUC by up to 5 percentage points during volatile periods [Paper 29, 2025]
+  - **Sliding-window retraining** - literature: improves AUC by up to 5 percentage points during volatile periods [CITATION NOT FOUND — verify or remove claim]
   - **Parameter updates** - literature: faster than structural updates [Xiang et al., 2023]
   - **Model reuse pool** - literature: Pool ICM reduced retraining events by up to 94% [Eliades & Papadopoulos, 2025]
   - **Online adaptive RNN** - literature: effective for load forecasting under concept drift [Xiang et al., 2023]
@@ -688,7 +729,7 @@
   - Actual transaction data used to compute forecast accuracy
   - Errors flagged for model improvement
   - User feedback on forecast accuracy collected via app (optional)
-  - **Monthly retraining** with latest data - literature: continuous curation and periodic retraining maintain performance near peak levels (sawtooth pattern) [Paper 97, 2025]
+  - **Monthly retraining** with latest data - literature: continuous curation and periodic retraining maintain performance near peak levels (sawtooth pattern) [CITATION NOT FOUND — verify or remove claim]
 
 - **Evaluation Metrics for Drift:**
   - **OldTransfer** (knowledge preservation) - literature: GEM achieved 0.1785 OldTransfer on Forest Cover [Pai et al., 2024]
@@ -700,15 +741,20 @@
 ## 11. Timeline, Dependencies, and Decision Gates
 *Break down the 10 phases into a realistic schedule for the thesis project.*
 
+### Shared Data Phase (All Modules)
 | Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
 | :--- | :--- | :--- | :--- |
-| 2 & 3 (Data) | Cleaned, versioned time series | 14 days | Data passes quality checks; minimum 1,500 days of history; IQR outlier handling validated |
+| 1–3 (Problem + Data) | Problem statement, cleaned dataset, synthetic personas | 16 days | Persona set passes expert + distributional validation; minimum 4,000 labeled personas for PFP, 12,000 personas for Forecaster/Anomaly; archetypes validated against BSP CFS (see `bsp-fies-crosswalk.md`) |
+
+### Forecaster Module (Picks up from shared Data)
+| Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
+| :--- | :--- | :--- | :--- |
 | 4 & 5 (EDA & Features) | Feature matrix ready; EDA report | 10 days | EDA confirms weekly/semi-monthly/monthly seasonality; ACF/PACF analysis complete; SHAP feature importance identified |
 | 6 & 7 (Modeling & Eval) | Baseline + Intermediate results | 14 days | ARIMA baseline established; XGBoost/LightGBM beats ARIMA by >20% MAPE reduction [Bhavana et al., 2025] |
-| 8 (Optimization) | Final optimized model | 10 days | Final model meets KPI: MAPE < 5% at total level [Krstev et al., 2023; Ullah et al., 2024] |
+| 8 (Optimization) | Final optimized model | 10 days | Final model meets KPI: MAPE < 15% at total level; researcher-defined targets |
 | 9 & 10 (Deploy & Monitor) | Packaged module + monitoring setup | 10 days | Integration test passes; drift detection (ADWIN/CUSUM) configured; monitoring metrics configured |
 
-**Total Estimated Duration: 58 days (~2 months)**
+**Forecaster Module Duration: 44 days (from feature engineering onward)**
 
 ---
 
@@ -718,12 +764,12 @@
 - **Core Hypothesis:** New users can be modeled using demographic proxies, synthetic data generation, or zero-shot transfer learning until sufficient transaction history is accumulated.
 
 - **Strategies:**
-  1. **Zero-shot forecasting with TEMPO** - literature: pre-trained transformer with decomposition and soft prompts; achieved 6.5% MAE improvement on Weather dataset, 19.1% on ETTm1 [Cao et al., 2024]
-  2. **Self-supervised learning (SSL)** - literature: learns representations from unlabeled data; achieved AUC 0.91 for credit risk vs XGBoost's 0.84 [Yachamaneni et al., 2025]
-  3. **Synthetic data generation** - literature: PAnDA framework using LLMs achieved 37.55% improvement in Recall@10 on sparse datasets [Paper 77, 2025]
-  4. **Knowledge transfer via GCN** - literature: TechCD framework enables zero-shot cognitive diagnosis; achieved 56.73% ACC with out-domain data [Gao et al., 2023]
-  5. **Behavioral profiling** - use user-declared preferences and demographic data (age, employment type, PFP) as proxies
-  6. **Default fallback** - use ARIMA/ETS statistical model until enough data is available - literature: simple models often perform comparably to complex models when data is limited [Krstev et al., 2023]
+  1. **Zero-shot forecasting with TEMPO** `[Cost: High]` - literature: pre-trained transformer with decomposition and soft prompts; achieved 6.5% MAE improvement on Weather dataset, 19.1% on ETTm1 [Cao et al., 2024]. Implemented in PyTorch.
+  2. **Self-supervised learning (SSL)** `[Cost: High]` - literature: learns representations from unlabeled data; achieved AUC 0.91 for credit risk vs XGBoost's 0.84 [Yachamaneni et al., 2025]
+  3. **Synthetic data generation** `[Cost: Medium]` - literature: PAnDA framework using LLMs achieved 37.55% improvement in Recall@10 on sparse datasets [CITATION NOT FOUND — verify or remove claim]
+  4. **Knowledge transfer via GCN** `[Cost: High]` - literature: TechCD framework enables zero-shot cognitive diagnosis; achieved 56.73% ACC with out-domain data [Gao et al., 2023]
+  5. **Behavioral profiling** `[Cost: Low]` - use user-declared preferences and demographic data (age, employment type, PFP) as proxies
+  6. **Default fallback** `[Cost: Low]` - use ARIMA/ETS statistical model until enough data is available - literature: simple models often perform comparably to complex models when data is limited [Krstev et al., 2023]
 
 - **Combined Approach:**
   - **Immediate:** Zero-shot TEMPO or SSL-based representation using only demographic features
@@ -744,13 +790,13 @@
   - **Recurring drift** - past distributions reappear (e.g., seasonal patterns) - literature: least addressed; model reuse pool can handle [Eliades & Papadopoulos, 2025]
 
 - **Detection Methods:**
-  - **ADWIN** (ADaptive WINdowing) - literature: with incremental learning dominates on gradual drift [Paper 30, 2025]
-  - **DDM** (Drift Detection Method) - literature: reacts fastest to abrupt shifts [Paper 30, 2025]
+  - **ADWIN** (ADaptive WINdowing) - literature: with incremental learning dominates on gradual drift [CITATION NOT FOUND — verify or remove claim]
+  - **DDM** (Drift Detection Method) - literature: reacts fastest to abrupt shifts [CITATION NOT FOUND — verify or remove claim]
   - **CUSUM** - literature: for abrupt drift detection [Yashwanth et al., 2023]
   - **Hybrid approach** - CUSUM + moving average; detection delay 31.2 instances for abrupt, 64.8 for gradual [Yashwanth et al., 2023]
 
 - **Adaptation Strategies:**
-  1. **Sliding-window retraining** - literature: improves AUC by up to 5 percentage points during volatile periods [Paper 29, 2025]
+  1. **Sliding-window retraining** - literature: improves AUC by up to 5 percentage points during volatile periods [CITATION NOT FOUND — verify or remove claim]
   2. **Parameter updates** - literature: faster than structural updates [Xiang et al., 2023]
   3. **Model reuse pool** - literature: Pool ICM reduced retraining events by up to 94% [Eliades & Papadopoulos, 2025]
   4. **Severity-aware adaptation** - literature: quantile transformation reduced KS statistic from 0.0559 to 0.0072 [Shakhovska & Pukach, 2025]
@@ -763,18 +809,23 @@
   - **False positive rate** - literature: 0.041 vs ADWIN's 0.147 [Yashwanth et al., 2023]
 
 - **Key Recommendation:** Hierarchical architecture combining:
-  1. **Lightweight screening at edge** - flag potential shifts [Paper 26, 2025]
+  1. **Lightweight screening at edge** - flag potential shifts [CITATION NOT FOUND — verify or remove claim]
   2. **Rigorous validation in cloud** - with severity-aware thresholds [Shakhovska & Pukach, 2025]
-  3. **Feedback loop** - refine model and re-deploy [Paper 26, 2025]
+  3. **Feedback loop** - refine model and re-deploy [CITATION NOT FOUND — verify or remove claim]
+
+- **Key Assumption (synthetic-to-real gap):** All KPI figures in this document are measured on synthetic personas. Generalization to real users is untested until real prototype-user data is available (Section 2, Secondary source) and is treated as an explicit limitation of this design, not a guarantee.
+- **Key Assumption (injected feature realism):** Indirect/behavioral and temporal features are manually injected into personas based on RRL citations and financial-expert judgment, not observed directly in FIES. Any reported forecast accuracy is only as trustworthy as these injection rules; this is documented as a threat to validity rather than assumed away.
+- **Key Assumption (BSP-FIES crosswalk):** Archetype segmentation is sourced from the BSP Consumer Finance Report, while granular transaction data is sourced from PSA FIES microdata — two surveys with different units of analysis and sampling frames. Any mismatch between a BSP-defined archetype and the FIES-derived income/expense profile assigned to it is a threat to validity, not a confirmed equivalence; see `bsp-fies-crosswalk.md`.
 
 ---
 
 # Model Design Document - Anomaly Detector
-**Document Version:** v2.0  
+**Document Version:** v2.2  
 **Module Name:** Anomaly Detector  
 **Author(s):** Guevarra
-**Date:** 2026-07-16  
+**Date:** 2026-07-26  
 **Status:** Draft
+**Companion Documents:** `bsp-fies-crosswalk.md`, `synthetic-injection-rules.md`
 
 ---
 
@@ -856,7 +907,7 @@
 *Define what data is required to train this module, without committing to the final dataset.*
 
 - **Sourcing Strategy:**
-  - **Primary:** Synthetic persona/transaction pipeline with anomaly injection — 12,000 personas generated from PSA 2023 FIES NCR microdata, with ~3% of transactions labeled as anomalous via five injection types (monetary spikes, category velocity, temporal deviations, merchant novelty, budget overages). See synthetic-injection-rules.md §5.
+  - **Primary:** Archetype-driven synthetic persona/transaction pipeline with anomaly injection, shared with the PFP Classifier and Forecaster through preprocessing/EDA and triplicated at feature engineering for this module's specification — 12,000 personas across 12 archetypes (8 PFP octants + up to 4 BSP-informed edge cases; see `bsp-fies-crosswalk.md`), with ~3% of transactions labeled as anomalous via five injection types (monetary spikes, category velocity, temporal deviations, merchant novelty, budget overages). Archetype segmentation is informed by the **BSP Consumer Finance Report**; granular transaction data is generated from **PSA 2023 FIES NCR microdata**. See synthetic-injection-rules.md §5.
   - **Secondary:** Historical anonymized transaction data from thesis prototype users, once available — used to validate synthetic-to-real generalization
   - **Tertiary:** Publicly available fraud detection datasets for pre-training (e.g., credit card fraud datasets)
 
@@ -942,7 +993,7 @@
   - **Amount:** Raw, log-transformed, Z-score normalized
   - **Category:** One-Hot Encoding or target encoding
   - **Temporal:** Day of week (sin/cos), hour of day (sin/cos), month, holiday indicators - literature: late-night transactions (0-6 AM) have highest risk score of 0.72 [Fariha et al., 2025]
-  - **Behavioral:** Recency, frequency, monetary value (RFM) - literature: RFM features are most predictive [Ahmed & Dey, 2023; Paper 32]
+  - **Behavioral:** Recency, frequency, monetary value (RFM) - literature: RFM features are most predictive [Ahmed & Dey, 2023; CITATION NOT FOUND — verify or remove claim]
 
 - **Derived Features:**
   - **Amount deviation:** `(amount - category_mean) / category_std` - literature: amount deviation from cardholder average is discriminative [Fariha et al., 2025]
@@ -951,10 +1002,10 @@
   - **Category frequency:** how often category appears in user's history
   - **Amount relative to budget:** `amount / budget_allocation`
   - **Inter-transaction gap:** days since last transaction
-  - **Hesitation index:** time between transaction start and completion - literature: hesitation index improves churn prediction from 61% to 86% [Paper 52, 2025]
+  - **Hesitation index:** time between transaction start and completion - literature: hesitation index improves churn prediction from 61% to 86% [CITATION NOT FOUND — verify or remove claim]
   - **Behavioral volatility:** standard deviation of transaction amounts over rolling window - literature: behavioral volatility is predictive of risk [Islam et al., 2025]
   - **Merchant diversity score** - literature: retained users have higher diversity (M=6.8 vs 2.9) [Ahmed & Dey, 2023]
-  - **Trust-weighted embeddings** combining long-term and short-term behavior - literature: BTVE adapts to behavioral drift with automatic retraining [Paper 63, 2025]
+  - **Trust-weighted embeddings** combining long-term and short-term behavior - literature: BTVE adapts to behavioral drift with automatic retraining [CITATION NOT FOUND — verify or remove claim]
   - **Wallet balance trend** - literature: factor of 1.74x over other features [Olabintan, 2026]
 
 - **Missingness Indicators:**
@@ -978,18 +1029,18 @@
 ## 6. Data Modeling Strategy (Algorithm Selection & Baseline)
 *Define the tiered approach to modeling. **Crucially**, do not select the final model here; define the selection criteria.*
 
-- **Tier 1: Baseline Model (Must-Have):**
+- **Tier 1: Baseline Model (Must-Have):** `[Cost: Low]`
   - **IQR (Inter-Quartile Range) rule-based detection:** median ± 3×IQR
   - **Purpose:** Establish simple statistical baseline
   - **Expected performance:** F1 < 0.50 (limitation of simple rules)
 
-- **Tier 2: Intermediate Model (Unsupervised):**
+- **Tier 2: Intermediate Model (Unsupervised):** `[Cost: Medium]`
   - **Isolation Forest** - literature: efficient for high-dimensional data; achieves 95.3% detection rate with 4.8% FPR [Zhong, 2025]; isolates anomalies via random partitioning [Fariha et al., 2025]
   - **Autoencoder** - literature: reconstruction error as anomaly score; highest AUC-ROC (0.971) among unsupervised methods [Fariha et al., 2025]
   - **One-Class SVM** - literature: useful for cold-start scenarios [Bader & Haraty, 2025]
   - **Purpose:** Unsupervised anomaly detection; establish unsupervised baselines
 
-- **Tier 3: Advanced Model (Primary):**
+- **Tier 3: Advanced Model (Primary):** `[Cost: High]`
   - **Hybrid Ensemble** - literature: ensemble methods consistently outperform single algorithms [Luong & Xie, 2026; Kashif & Naseer, 2025]
     - **LightGBM + Isolation Forest:** Combines supervised and unsupervised detection
     - **XGBoost + DNN ensemble:** Achieved F1-score of 0.74 with 0.35ms inference time [Luong & Xie, 2026]
@@ -1001,10 +1052,11 @@
   - **Self-Supervised Learning (SSL):** - literature: achieves F1=0.96 with SSL+Hybrid; addresses cold-start by learning from behavior [Al Rafi, 2024; Zhang & Duan, 2025]
   - **Purpose:** State-of-the-art anomaly detection with concept drift handling
 
-- **Tier 4: Sequential Pattern Detection (Optional):**
+- **Tier 4: Sequential Pattern Detection (Optional):** `[Cost: Very High — FLAG: disproportionate to 55-day budget]`
   - **Hybrid CNN-LSTM (ATAD-Net):** - literature: achieved 98.65% accuracy with 8.2ms latency [Abd-Ellatif et al., 2025]
   - **LSTM with Reinforcement Learning (RLFD):** - literature: uniquely detects sequential fraud missed by GBT; achieved 0.549 fraud recall vs 0.226 for GBT [Papanastassiou et al., 2026]
   - **Purpose:** Capture temporal dependencies in spending behavior; essential for detecting sequential anomalies
+  - **⚠ Flag:** Tier 4 candidates have implementation complexity disproportionate to the thesis timeline. Retain for literature completeness but prioritize Tier 2-3 for implementation.
 
 - **Selection Criteria:**
   - Highest F1-Score within latency budget (target: F1 ≥ 0.85)
@@ -1039,7 +1091,7 @@
   - **Contamination parameter tuning** to adjust sensitivity (contamination rate: 1-5%)
 
 - **Confusion Matrix Analysis:**
-  - **False positives** (legitimate transactions flagged as anomalies) - critical for user trust; literature: reduced false positives by 30-40% post-deployment with regularization via complaint rates [Paper 98, 2025]
+  - **False positives** (legitimate transactions flagged as anomalies) - critical for user trust; literature: reduced false positives by 30-40% post-deployment with regularization via complaint rates [CITATION NOT FOUND — verify or remove claim]
   - **False negatives** (missed anomalies) - important for catching issues; cost-sensitive optimization improves recall [Serdan, 2025]
 
 - **Range Metrics for Sequential Anomalies:**
@@ -1132,41 +1184,41 @@
 *Define how we will know the module is degrading over time, without specifying the monitoring tool.*
 
 - **Metrics to Track Post-Deployment:**
-  - *Input Drift:* Monitor distribution changes in transaction amounts and categories - literature: use Population Stability Index (PSI) with threshold 10% [Paper 9, 2025]
+  - *Input Drift:* Monitor distribution changes in transaction amounts and categories - literature: use Population Stability Index (PSI) with threshold 10% [CITATION NOT FOUND — verify or remove claim]
   - *Output Drift:* Monitor anomaly flag rate (should remain stable around contamination rate)
   - *Performance:* Compare flagged anomalies to user feedback (whitelist additions)
   - *Precision/Recall:* Track user corrections (whitelist = false positive) and missed anomalies
 
 - **Drift Detection Methods:**
-  - **ADWIN** (Adaptive WINdowing) - literature: with incremental learning dominates on gradual drift [Paper 30, 2025]
-  - **DDM** (Drift Detection Method) - literature: reacts fastest to abrupt shifts [Paper 30, 2025]
-  - **EDDM** - literature: captures all critical drifts [Paper 69, 2025]
+  - **ADWIN** (Adaptive WINdowing) - literature: with incremental learning dominates on gradual drift [CITATION NOT FOUND — verify or remove claim]
+  - **DDM** (Drift Detection Method) - literature: reacts fastest to abrupt shifts [CITATION NOT FOUND — verify or remove claim]
+  - **EDDM** - literature: captures all critical drifts [CITATION NOT FOUND — verify or remove claim]
   - **CUSUM** - literature: for abrupt drift detection [Yashwanth et al., 2023]
-  - **Hybrid detection:** EDDM + ADWIN combined - literature: achieved 100% drift detection rate [Paper 69, 2025]
+  - **Hybrid detection:** EDDM + ADWIN combined - literature: achieved 100% drift detection rate [CITATION NOT FOUND — verify or remove claim]
   - **Dual detection:** CUSUM for abrupt + moving average for gradual - literature: detection delay 31.2 instances for abrupt, 64.8 for gradual [Yashwanth et al., 2023]
-  - **KS Test:** Compares distributions - literature: identified 91.3% of significant changes within 18ms [Paper 97, 2025]
+  - **KS Test:** Compares distributions - literature: identified 91.3% of significant changes within 18ms [CITATION NOT FOUND — verify or remove claim]
   - **Embedding cosine distance:** `Drift_rep = (1/k) Σ (1 - (h_t · h_{k-d})/(||h_t|| ||h_{k-d}||))` [Martin et al., 2023]
 
 - **Retraining Triggers:**
   - Anomaly flag rate changes by >2x (significant drift)
-  - User whitelist additions spike (high false positives) - literature: false positives reduced by 30-40% post-deployment with regularization [Paper 98, 2025]
+  - User whitelist additions spike (high false positives) - literature: false positives reduced by 30-40% post-deployment with regularization [CITATION NOT FOUND — verify or remove claim]
   - Model performance drops below threshold (Precision < 0.80 or Recall < 0.60)
   - Rolling F1 < 0.75 for 3 consecutive weeks
   - Significant input drift detected (PSI > 0.1)
   - **Severity-aware retraining:** Quantile transformation reduces unnecessary retraining - literature: 93% of features exhibited significant drift [Shakhovska & Pukach, 2025]
 
 - **Adaptation Strategies:**
-  - **Sliding-window retraining** - literature: improves accuracy by up to 5pp during volatile periods [Paper 29, 2025]
+  - **Sliding-window retraining** - literature: improves accuracy by up to 5pp during volatile periods [CITATION NOT FOUND — verify or remove claim]
   - **Parameter updates** - literature: faster than structural updates [Xiang et al., 2023]
   - **Model reuse pool** - literature: Pool ICM reduced retraining events by up to 94% [Eliades & Papadopoulos, 2025]
-  - **Adaptive buffering** - literature: retains only drifted batches for retraining; 0.80 accuracy vs FIFO (0.74) and No-Buffer (0.69) under recurring drift [Paper 53, 2025]
+  - **Adaptive buffering** - literature: retains only drifted batches for retraining; 0.80 accuracy vs FIFO (0.74) and No-Buffer (0.69) under recurring drift [CITATION NOT FOUND — verify or remove claim]
   - **Online adaptive RNN** - literature: effective for load forecasting under concept drift [Xiang et al., 2023]
 
 - **Feedback Loop:**
   - User whitelist additions signal false positives → improve model
   - User marking transactions as normal (if anomaly reported) → feedback for model improvement
   - Monthly retraining with latest transaction data + user feedback
-  - **Cost-Benefit Framework:** `S = α·Acc − β·Lat − γ·Cost − δ·FAR` - literature: no single configuration dominates across all regimes [Paper 29, 2025]
+  - **Cost-Benefit Framework:** `S = α·Acc − β·Lat − γ·Cost − δ·FAR` - literature: no single configuration dominates across all regimes [CITATION NOT FOUND — verify or remove claim]
 
 - **Evaluation Metrics for Drift:**
   - **OldTransfer** (knowledge preservation) - literature: GEM achieved 0.1785 OldTransfer [Pai et al., 2024]
@@ -1178,15 +1230,20 @@
 ## 11. Timeline, Dependencies, and Decision Gates
 *Break down the 10 phases into a realistic schedule for the thesis project.*
 
+### Shared Data Phase (All Modules)
 | Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
 | :--- | :--- | :--- | :--- |
-| 2 & 3 (Data) | Cleaned, versioned dataset | 14 days | Dataset passes quality checks; minimum 100,000 transactions; IQR outlier handling validated |
+| 1–3 (Problem + Data) | Problem statement, cleaned dataset, synthetic personas | 16 days | Persona set passes expert + distributional validation; minimum 4,000 labeled personas for PFP, 12,000 personas for Forecaster/Anomaly; archetypes validated against BSP CFS (see `bsp-fies-crosswalk.md`) |
+
+### Anomaly Detector Module (Picks up from shared Data)
+| Phase | Deliverable | Estimated Duration | Success Gate (Go/No-Go) |
+| :--- | :--- | :--- | :--- |
 | 4 & 5 (EDA & Features) | Feature matrix ready; EDA report | 7 days | EDA confirms anomaly patterns; feature importance identified; temporal patterns validated |
 | 6 & 7 (Modeling & Eval) | Baseline + Intermediate results | 14 days | IQR baseline established; Isolation Forest beats IQR by >50% F1 improvement |
 | 8 (Optimization) | Final optimized model | 10 days | Final model meets KPI: F1 ≥ 0.85, Recall ≥ 0.85, FPR ≤ 0.05 [Huang A. et al., 2025; Al Rafi, 2024] |
 | 9 & 10 (Deploy & Monitor) | Packaged module + monitoring setup | 10 days | Integration test passes; drift detection (ADWIN/EDDM) configured; monitoring metrics configured |
 
-**Total Estimated Duration: 55 days (~2 months)**
+**Anomaly Detector Module Duration: 41 days (from feature engineering onward)**
 
 ---
 
@@ -1197,15 +1254,15 @@
 
 - **Strategies from Literature:**
 
-| Strategy | Mechanism | Evidence |
-|----------|-----------|----------|
-| **Self-Supervised Learning** | Pretext tasks on unlabeled data; learns from behavior patterns | SSL achieved F1=0.96; AUC 0.91 for credit risk vs XGBoost 0.84 [Al Rafi, 2024; Yachamaneni et al., 2025] |
-| **Behavioral Biometrics** | Dynamic trust-weighted embeddings identify users after 14 seconds of interaction | Achieves 97.6% user identification accuracy using interaction patterns [Islam et al., 2025] |
-| **Synthetic Data Generation** | GANs, SMOTE, ADASYN, or LLM-based augmentation for cold-start users | PAnDA achieved 15-37% performance gain on cold-start tasks [Du et al., 2025]; TVAE achieved 89% ROC AUC vs 52-59% for alternatives [Paper 76, 2025] |
-| **Transfer Learning** | Knowledge Concept Graph (KCG) enables zero-shot profiling | TechCD achieved 56.73% ACC with out-domain data [Gao et al., 2023] |
-| **Unsupervised Baselines** | Isolation Forest, One-Class SVM, autoencoders require only normal data | TA-IFDC achieved F1=0.927 without labels [Huang A. et al., 2025] |
-| **Federated Learning** | Collaborative training across institutions without sharing raw data | SCAFFOLD achieves 84.7% accuracy with robust non-IID performance [Paper 33, 2025] |
-| **Active Learning** | Iterative labeling of uncertain cases for exploration | Mainstream approach for cold-start and label scarcity [Zhou & He, 2023] |
+| Strategy | Mechanism | Evidence | Cost |
+|----------|-----------|----------|------|
+| **Self-Supervised Learning** | Pretext tasks on unlabeled data; learns from behavior patterns | SSL achieved F1=0.96; AUC 0.91 for credit risk vs XGBoost 0.84 [Al Rafi, 2024; Yachamaneni et al., 2025] | High |
+| **Behavioral Biometrics** | Dynamic trust-weighted embeddings identify users after 14 seconds of interaction | Achieves 97.6% user identification accuracy using interaction patterns [Islam et al., 2025] | Very High — FLAG: disproportionate to thesis scope |
+| **Synthetic Data Generation** | GANs, SMOTE, ADASYN, or LLM-based augmentation for cold-start users | PAnDA achieved 15-37% performance gain on cold-start tasks [Du et al., 2025]; TVAE achieved 89% ROC AUC vs 52-59% for alternatives [CITATION NOT FOUND — verify or remove claim] | Medium |
+| **Transfer Learning** | Knowledge Concept Graph (KCG) enables zero-shot profiling | TechCD achieved 56.73% ACC with out-domain data [Gao et al., 2023] | High |
+| **Unsupervised Baselines** | Isolation Forest, One-Class SVM, autoencoders require only normal data | TA-IFDC achieved F1=0.927 without labels [Huang A. et al., 2025] | Medium |
+| **Federated Learning** | Collaborative training across institutions without sharing raw data | SCAFFOLD achieves 84.7% accuracy with robust non-IID performance [CITATION NOT FOUND — verify or remove claim] | Very High — FLAG: infrastructure requirement disproportionate to thesis scope |
+| **Active Learning** | Iterative labeling of uncertain cases for exploration | Mainstream approach for cold-start and label scarcity [Zhou & He, 2023] | Medium |
 
 - **Combined Approach:**
   - **Immediate:** Unsupervised Isolation Forest + autoencoder using available data (even minimal)
@@ -1226,13 +1283,13 @@
 ## 13. Concept Drift & Assumptions
 *Define how the module handles changing user behavior and economic conditions over time.*
 
-- **Core Assumption:** Non-stationarity is the norm in financial data, not the exception [Cabral et al., 2026]. Static models degrade over time and require continuous adaptation. 91% of ML models experience performance decay in production, sometimes within days [Paper 97, 2025].
+- **Core Assumption:** Non-stationarity is the norm in financial data, not the exception [Cabral et al., 2026]. Static models degrade over time and require continuous adaptation. 91% of ML models experience performance decay in production, sometimes within days [CITATION NOT FOUND — verify or remove claim].
 
 - **Types of Drift to Handle:**
 
 | Type | Description | Detection Method | Evidence |
 |------|-------------|------------------|----------|
-| **Abrupt** | Sudden distribution change (e.g., pandemic, job loss) | CUSUM, DDM, Page-Hinkley | Detection delay: 31.2 instances [Yashwanth et al., 2023]; ARF+HT achieves 0.94 AUC [Paper 48, 2025] |
+| **Abrupt** | Sudden distribution change (e.g., pandemic, job loss) | CUSUM, DDM, Page-Hinkley | Detection delay: 31.2 instances [Yashwanth et al., 2023]; ARF+HT achieves 0.94 AUC [CITATION NOT FOUND — verify or remove claim] |
 | **Gradual** | Slow change over time (e.g., lifestyle changes) | Moving average, ADWIN | Detection delay: 64.8 instances [Yashwanth et al., 2023] |
 | **Recurrent** | Past distributions reappear (e.g., seasonal patterns) | Pool ICM, exchangeability testing | Pool ICM reduced retraining events by up to 94% [Eliades & Papadopoulos, 2025] |
 | **Incremental** | Slow, continuous shift | EWMA, sliding window | Most challenging; neither adaptation nor lifelong learning performs well [Pai et al., 2024] |
@@ -1241,21 +1298,21 @@
 
 | Method | Description | Performance |
 |--------|-------------|-------------|
-| **ADWIN** | Adaptive windowing for streaming data | Handles gradual drift effectively; with incremental learning dominates on gradual drift [Paper 30, 2025] |
-| **DDM** | Drift Detection Method based on error rates | Reacts fastest to abrupt shifts [Paper 30, 2025] |
-| **EDDM** | Early Drift Detection Method | Captures all critical drifts [Paper 69, 2025] |
-| **Hybrid** | EDDM + ADWIN combined | 100% drift detection rate [Paper 69, 2025] |
-| **KS Test** | Kolmogorov-Smirnov compares distributions | Identified 91.3% of significant changes within 18ms [Paper 97, 2025] |
+| **ADWIN** | Adaptive windowing for streaming data | Handles gradual drift effectively; with incremental learning dominates on gradual drift [CITATION NOT FOUND — verify or remove claim] |
+| **DDM** | Drift Detection Method based on error rates | Reacts fastest to abrupt shifts [CITATION NOT FOUND — verify or remove claim] |
+| **EDDM** | Early Drift Detection Method | Captures all critical drifts [CITATION NOT FOUND — verify or remove claim] |
+| **Hybrid** | EDDM + ADWIN combined | 100% drift detection rate [CITATION NOT FOUND — verify or remove claim] |
+| **KS Test** | Kolmogorov-Smirnov compares distributions | Identified 91.3% of significant changes within 18ms [CITATION NOT FOUND — verify or remove claim] |
 | **Embedding cosine** | Distance between hidden representations | `Drift_rep = (1/k) Σ (1 - (h_t · h_{k-d})/(||h_t|| ||h_{k-d}||))` [Martin et al., 2023] |
 
 - **Adaptation Strategies:**
 
 | Strategy | Effectiveness | Evidence |
 |----------|---------------|----------|
-| **Sliding-window retraining** | Improves AUC by up to 5pp during volatile periods | [Paper 29, 2025] |
+| **Sliding-window retraining** | Improves AUC by up to 5pp during volatile periods | [CITATION NOT FOUND — verify or remove claim] |
 | **Parameter updates** | Faster than structural updates; common approach | [Xiang et al., 2023] |
 | **Model reuse pool** | Pool ICM reduced retraining events by 94% with <3% accuracy loss | [Eliades & Papadopoulos, 2025] |
-| **Adaptive buffering** | 0.80 accuracy vs FIFO (0.74) and No-Buffer (0.69) under recurring drift | [Paper 53, 2025] |
+| **Adaptive buffering** | 0.80 accuracy vs FIFO (0.74) and No-Buffer (0.69) under recurring drift | [CITATION NOT FOUND — verify or remove claim] |
 | **Severity-aware** | Quantile transformation reduced KS statistic from 0.0559 to 0.0072 | [Shakhovska & Pukach, 2025] |
 | **Batch training** | Outperforms ignoring drift; robust performance across diverse streams | [Pereira & Da Silva, 2025] |
 | **Online adaptive RNN** | Effective for load forecasting under concept drift | [Xiang et al., 2023] |
@@ -1271,6 +1328,10 @@
 | **Statistical tests detect drift** | JS Divergence, KS tests, Wasserstein distance widely used, but pooled analysis can mask subgroup-level drift [Shakhovska & Pukach, 2025] |
 | **Seasonal patterns stable** | Multi-SARIMA assumes two seasonal periods exist; performance degrades if patterns drift [Williams et al., 2023] |
 | **Subgroup-level drift** | Subgroup-level analysis can reveal drift masked by pooled aggregation; 44 of 45 areas showed significant drift despite overall no drift [Shakhovska & Pukach, 2025] |
+
+- **Key Assumption (synthetic-to-real gap):** All KPI figures in this document are measured on synthetic personas with injected anomalies. Generalization to real users and to real (rather than synthetically injected) anomalous behavior is untested until real prototype-user data is available (Section 2, Secondary source) and is treated as an explicit limitation of this design, not a guarantee.
+- **Key Assumption (injected feature realism):** Both the behavioral features and the anomalies themselves are synthetically injected per RRL citations and financial-expert judgment, not observed directly in FIES. Any reported detection performance is only as trustworthy as these injection rules; this is documented as a threat to validity rather than assumed away.
+- **Key Assumption (BSP-FIES crosswalk):** Archetype segmentation is sourced from the BSP Consumer Finance Report, while granular transaction data is sourced from PSA FIES microdata — two surveys with different units of analysis and sampling frames. Any mismatch between a BSP-defined archetype and the FIES-derived income/expense profile assigned to it is a threat to validity, not a confirmed equivalence; see `bsp-fies-crosswalk.md`.
 
 - **Recommended Architecture:**
 
@@ -1315,6 +1376,6 @@
   2. **Prioritize recall over accuracy** → Cost of missed fraud > false alarms [Karthikeyan et al., 2026]
   3. **Use behavioral indicators** → Transaction frequency, device/location consistency [Shaha & Gavekar, 2025]
   4. **Implement adaptive thresholds** → Dynamic adjustment based on performance feedback [Huang A. et al., 2025]
-  5. **Address cold-start early** → Synthetic data via TVAE or LLM augmentation [Paper 76, 2025; Du et al., 2025]
-  6. **Monitor for concept drift continuously** → Dual ADWIN+EDDM strategy [Paper 69, 2025]
+  5. **Address cold-start early** → Synthetic data via TVAE or LLM augmentation [CITATION NOT FOUND — verify or remove claim; Du et al., 2025]
+  6. **Monitor for concept drift continuously** → Dual ADWIN+EDDM strategy [CITATION NOT FOUND — verify or remove claim]
   7. **Design for 30-day data windows** - longer windows don't improve performance [Heirene et al., 2026]

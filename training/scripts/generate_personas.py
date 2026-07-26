@@ -13,6 +13,10 @@ Thresholds (provisional, pending SME validation):
 Uses FIES variable IDs (TOINC, FOOD, etc.) for column access.
 See: Odin-Paper/Model/2_Data Collection/FIES Dictionary & Valueset.csv
 
+Data Sources:
+  - PSA 2023 FIES NCR (41,380 households) — financial numerical baselines
+  - BSP 2021 Consumer Finance Survey — behavioral/attitudinal patterns
+
 Usage:
     python scripts/generate_personas.py --input <fies_csv> --output <output_dir>
 """
@@ -82,6 +86,8 @@ class PersonaArchetype:
 # ---------------------------------------------------------------------------
 # 12 archetypes from persona-validation-list-SME-draft.md
 # Each maps to a specific 2x2x2 cell in the PFP matrix.
+# Income ranges calibrated to FIES NCR 2023 decile distribution.
+# Behavioral patterns calibrated to BSP CFS 2021.
 # ---------------------------------------------------------------------------
 
 ARCHETYPES = [
@@ -89,168 +95,168 @@ ARCHETYPES = [
     PersonaArchetype(
         archetype_id="A",
         name="BPO Employee, Moderate Obligations, Healthy Fund",
-        income_range=(25000, 45000),
+        income_range=(35000, 45000),  # FIES NCR D5-D6
         income_cv=0.10,
         obligation_ratio=0.70,
         savings_rate=0.10,
         runway_months=5.0,
         household_size=(1, 2),
         employment_type="full_time",
-        description="Regular BPO employee, 2yr tenure, consistent salary with minor overtime variation. Single, no dependents.",
+        description="Regular BPO employee, 2yr tenure, consistent salary with minor overtime variation. Single, no dependents. CFS: top 2% for emergency runway.",
         expected_pfp="Stable/Obligated/Tolerant",
     ),
     # B: Stable / Obligated / Tight
     PersonaArchetype(
         archetype_id="B",
         name="Manufacturing Worker, Heavy Obligations, No Savings",
-        income_range=(20000, 35000),
+        income_range=(25000, 35000),  # FIES NCR D4-D5
         income_cv=0.15,
         obligation_ratio=0.85,
         savings_rate=0.00,
         runway_months=0.5,
         household_size=(3, 4),
         employment_type="full_time",
-        description="Regular manufacturing employee, 5yr tenure. Married, 1 child. Entire paycheck goes to obligations.",
+        description="Regular manufacturing employee, 5yr tenure. Married, 1 child. Entire paycheck goes to obligations. CFS: typical debt profile.",
         expected_pfp="Stable/Obligated/Tight",
     ),
     # C: Stable / Flexible / Tolerant
     PersonaArchetype(
         archetype_id="C",
         name="Tech Employee, Low Obligations, Strong Savings",
-        income_range=(40000, 70000),
+        income_range=(55000, 70000),  # FIES NCR D7-D9
         income_cv=0.08,
         obligation_ratio=0.45,
         savings_rate=0.30,
         runway_months=9.0,
         household_size=(1, 1),
         employment_type="full_time",
-        description="Regular tech company employee, 3yr tenure. Single, lives with parents (no rent). High savings rate.",
+        description="Regular tech company employee, 3yr tenure. Single, lives with parents (no rent). High savings rate. CFS: top 2% for financial health.",
         expected_pfp="Stable/Flexible/Tolerant",
     ),
     # D: Stable / Flexible / Tight
     PersonaArchetype(
         archetype_id="D",
         name="Government Employee, Low Obligations, Minimal Savings",
-        income_range=(25000, 40000),
+        income_range=(30000, 40000),  # FIES NCR D5-D6
         income_cv=0.12,
         obligation_ratio=0.50,
         savings_rate=0.05,
         runway_months=1.5,
         household_size=(1, 2),
         employment_type="full_time",
-        description="Government agency employee, 4yr tenure. Very consistent salary. Single. Spends discretionary freely.",
+        description="Government agency employee, 4yr tenure. Very consistent salary. Single. Spends discretionary freely. CFS: typical digital services user.",
         expected_pfp="Stable/Flexible/Tight",
     ),
     # E: Variable / Obligated / Tolerant
     PersonaArchetype(
         archetype_id="E",
         name="Freelancer, High Obligations, Adequate Buffer",
-        income_range=(20000, 60000),
+        income_range=(25000, 60000),  # FIES NCR D4-D7
         income_cv=0.70,
         obligation_ratio=0.75,
         savings_rate=0.14,
         runway_months=4.0,
         household_size=(1, 2),
         employment_type="freelancer",
-        description="Freelance graphic designer, 3yr self-employed. 3 retainer clients. Income varies monthly.",
+        description="Freelance graphic designer, 3yr self-employed. 3 retainer clients. Income varies monthly. CFS: above-average financial risk tolerance.",
         expected_pfp="Variable/Obligated/Tolerant",
     ),
     # F: Variable / Obligated / Tight
     PersonaArchetype(
         archetype_id="F",
         name="Contract Worker, High Obligations, Paycheck-to-Paycheck",
-        income_range=(15000, 40000),
+        income_range=(18000, 40000),  # FIES NCR D3-D5
         income_cv=0.65,
         obligation_ratio=0.80,
         savings_rate=0.00,
         runway_months=0.3,
         household_size=(2, 3),
         employment_type="informal",
-        description="Fixed-term construction contracts. Income gaps between contracts. Married, spouse part-time vendor.",
+        description="Fixed-term construction contracts. Income gaps between contracts. Married, spouse part-time vendor. CFS: below-average deposit ownership.",
         expected_pfp="Variable/Obligated/Tight",
     ),
     # G: Variable / Flexible / Tolerant
     PersonaArchetype(
         archetype_id="G",
         name="Freelance Writer/VA, Low Obligations, Healthy Fund",
-        income_range=(15000, 45000),
+        income_range=(20000, 45000),  # FIES NCR D3-D6
         income_cv=0.60,
         obligation_ratio=0.40,
         savings_rate=0.25,
         runway_months=7.0,
         household_size=(1, 2),
         employment_type="freelancer",
-        description="Freelance content writer + part-time VA, 2yr self-employed. Built reserves in high-earning months.",
+        description="Freelance content writer + part-time VA, 2yr self-employed. Built reserves in high-earning months. CFS: top 2% for financial resilience.",
         expected_pfp="Variable/Flexible/Tolerant",
     ),
     # H: Variable / Flexible / Tight
     PersonaArchetype(
         archetype_id="H",
         name="Tricycle Driver/Vendor, No Emergency Fund",
-        income_range=(5000, 20000),
+        income_range=(8000, 20000),  # FIES NCR D1-D3
         income_cv=0.80,
         obligation_ratio=0.45,
         savings_rate=0.00,
         runway_months=1.0,
         household_size=(1, 2),
         employment_type="gig_worker",
-        description="Part-time tricycle driver and occasional market vendor. No formal contract. Highly variable daily income.",
+        description="Part-time tricycle driver and occasional market vendor. No formal contract. Highly variable daily income. CFS: typical low-income profile.",
         expected_pfp="Variable/Flexible/Tight",
     ),
     # I: Variable / Obligated / Tight (edge case — recovering)
     PersonaArchetype(
         archetype_id="I",
         name="Recovering from Financial Shock, Depleted Savings",
-        income_range=(18000, 35000),
+        income_range=(20000, 35000),  # FIES NCR D3-D5
         income_cv=0.70,
         obligation_ratio=0.78,
         savings_rate=0.02,
         runway_months=0.8,
         household_size=(2, 3),
         employment_type="full_time",
-        description="Recently re-employed (3mo tenure). Laid off 4mo ago, depleted savings. Married, spouse also re-employed.",
+        description="Recently re-employed (3mo tenure). Laid off 4mo ago, depleted savings. Married, spouse also re-employed. CFS: transitional financial shock.",
         expected_pfp="Variable/Obligated/Tight",
     ),
     # J: Variable / Flexible / Tight (edge case — borderline tolerance)
     PersonaArchetype(
         archetype_id="J",
         name="Part-time Sales + Online Selling, Borderline Tolerance",
-        income_range=(12000, 30000),
+        income_range=(15000, 30000),  # FIES NCR D2-D4
         income_cv=0.55,
         obligation_ratio=0.55,
         savings_rate=0.05,
         runway_months=2.5,
         household_size=(1, 2),
         employment_type="sales",
-        description="Part-time mall sales associate + occasional online selling. Low obligations but inconsistent savings.",
+        description="Part-time mall sales associate + occasional online selling. Low obligations but inconsistent savings. CFS: typical young adult profile.",
         expected_pfp="Variable/Flexible/Tight",
     ),
     # K: Stable / Obligated / Tolerant (edge case — near threshold)
     PersonaArchetype(
         archetype_id="K",
         name="Telecom Employee, High Obligations Near Threshold",
-        income_range=(35000, 55000),
+        income_range=(45000, 55000),  # FIES NCR D6-D7
         income_cv=0.10,
         obligation_ratio=0.65,
         savings_rate=0.05,
         runway_months=4.0,
         household_size=(3, 4),
         employment_type="full_time",
-        description="Telecom employee, 4yr tenure. Married (spouse freelance tutor), 1 child. Obligations near threshold.",
+        description="Telecom employee, 4yr tenure. Married (spouse freelance tutor), 1 child. Obligations near threshold. CFS: mortgage + car loan typical.",
         expected_pfp="Stable/Obligated/Tolerant",
     ),
     # L: Stable / Flexible / Tight (edge case — no savings habit)
     PersonaArchetype(
         archetype_id="L",
         name="Marketing Agency, No Savings Habit Despite Stable Income",
-        income_range=(30000, 50000),
+        income_range=(35000, 50000),  # FIES NCR D5-D7
         income_cv=0.10,
         obligation_ratio=0.50,
         savings_rate=0.02,
         runway_months=1.0,
         household_size=(1, 1),
         employment_type="full_time",
-        description="Marketing agency employee, 2yr tenure. Single, rents studio. Spends discretionary freely, no buffer.",
+        description="Marketing agency employee, 2yr tenure. Single, rents studio. Spends discretionary freely, no buffer. CFS: typical discretionary spender.",
         expected_pfp="Stable/Flexible/Tight",
     ),
 ]

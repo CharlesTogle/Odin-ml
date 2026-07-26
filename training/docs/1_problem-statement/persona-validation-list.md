@@ -1,16 +1,20 @@
 ---
 document: "persona-validation-list-SME-draft.md"
-version: "0.1"
+version: "0.2"
 status: Draft (SME Review)
 scope: Training — Prerequisites
 depends_on:
   - "../1_problem-statement/README.md"
   - "feature-set.md"
+data_sources:
+  financial_numerical: "PSA 2023 FIES NCR (41,380 households) — income, expenditure, savings rates"
+  behavioral_patterns: "BSP 2021 Consumer Finance Survey (267 pages) — financial inclusion, savings behavior, debt patterns, attitudes"
 ---
 
 > **Review Target:** SME (Dr. Go)  
 > **Purpose:** Validate archetype roster, parameter ranges, and coverage before synthetic data generation.  
-> **Date:** July 2026
+> **Date:** July 2026  
+> **Data Sources:** FIES 2023 (financial numerical baselines) + BSP CFS 2021 (behavioral/attitudinal patterns)
 
 ---
 
@@ -37,6 +41,29 @@ The three classifying dimensions produce a **2×2×2 = 8 cell matrix**. Archetyp
 | **Financial Tolerance** | Tight (runway < 3 months) | Tolerant (runway ≥ 3 months) | Months of current expenses that existing savings/balance can cover if inflows cease |
 
 > **Note:** Thresholds above are working assumptions. Numeric thresholds are intentionally not finalized — they will be validated in Phase 4.5 (Dimension Threshold Discovery).
+
+### Data Sources for Archetype Calibration
+
+Archetypes are calibrated using two complementary Philippine household finance datasets:
+
+**PSA 2023 FIES NCR** (41,380 households) — Financial Numerical Baselines:
+- Average household income: ₱502,607/year (₱41,884/month); Median: ₱397,866/year (₱33,156/month)
+- Average household size: 4.03 members
+- Expense ratios: Food 41.1%, Housing/Water 28.9%, Transport 5.9%, Communication 3.9%, Insurance 2.6%, Health 2.4%, Education 1.7%
+- Savings rate: Mean 20.4%, Median 19.2%; 93.6% have positive savings
+- Income sources: Regular salary 88.2%, Entrepreneurial 32.7%, Remittances 22.1%, Seasonal 19.6%, Pension 17.4%
+
+**BSP 2021 Consumer Finance Survey** — Behavioral/Attitudinal Patterns:
+- Average household size: 4.1 members
+- Deposit account ownership: 35.3% of households
+- Emergency fund (3+ months expenses): Only 2.0% of households
+- Debt/loan ownership: 29.3% of households
+- Credit card ownership: 1.1% of households
+- Residential property ownership: 69.9% of households
+- Average net worth: ₱435,346
+- Financial risk tolerance: 6.3/10 (self-reported)
+- Digital financial services: E-money usage 24.3%, Mobile banking 17.7%
+- Past-due bills: 16.4% of households
 
 ---
 
@@ -73,12 +100,23 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Regular employee at a BPO company, 2 years tenure. Consistent monthly salary with minor overtime variation. Single, no dependents.
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱35,000–₱45,000 (FIES NCR D5–D6 decile range)
+- Household size: 1–2 members (FIES NCR average: 4.03)
+- Savings rate: 10% (FIES NCR mean: 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (CFS: 35.3% of households have deposit accounts)
+- Emergency fund: 5 months runway (CFS: only 2.0% have 3+ months)
+- Debt ownership: Credit card only (CFS: 29.3% have debt, 1.1% have credit cards)
+- Financial risk tolerance: Moderate (CFS average: 6.3/10)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Rent (studio apartment, Makati): ~25% of income
-- Groceries and utilities: ~15%
-- Transportation (commute): ~8%
+- Groceries and utilities: ~15% (FIES food ratio: 41.1% of total expenditure)
+- Transportation (commute): ~8% (FIES transport ratio: 5.9%)
 - Consumer debt repayment (credit card): ~12%
-- Insurance (HMO + life): ~5%
+- Insurance (HMO + life): ~5% (FIES insurance ratio: 2.6%)
 - Discretionary (dining out, entertainment): ~15%
 - Savings/investment: ~10%
 
@@ -97,13 +135,25 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Regular employee at a manufacturing firm, 5 years tenure. Consistent salary. Married, 1 child (toddler).
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱25,000–₱35,000 (FIES NCR D4–D5 decile range)
+- Household size: 3–4 members (FIES NCR average: 4.03)
+- Savings rate: 0% (below FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (but depleted) (CFS: 35.3% ownership)
+- Emergency fund: 0.5 months (CFS: only 2.0% have 3+ months)
+- Debt ownership: Multiple debts (CFS: 29.3% have debt)
+- Credit card: Yes (CFS: 1.1% ownership — rare but present)
+- Financial risk tolerance: Low (below CFS average of 6.3/10)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Rent (2-bedroom apartment, Pasig): ~20%
-- Groceries and utilities: ~20%
-- Transportation (commute + child transport): ~10%
+- Groceries and utilities: ~20% (FIES food ratio: 41.1%)
+- Transportation (commute + child transport): ~10% (FIES transport ratio: 5.9%)
 - Childcare: ~8%
 - Consumer debt repayment (2 credit cards + personal loan): ~15%
-- Insurance (HMO): ~5%
+- Insurance (HMO): ~5% (FIES insurance ratio: 2.6%)
 - Remittance to provincial family: ~7%
 - Discretionary: ~5%
 - Savings: ~0%
@@ -123,10 +173,23 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Regular employee at a tech company, 3 years tenure. Consistent salary with quarterly bonus. Single, lives with parents (no rent).
 
-**Obligation Breakdown:**
-- Groceries and utilities (contributes to household): ~15%
-- Transportation (motorcycle fuel): ~5%
-- Insurance (HMO + life + personal accident): ~8%
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱55,000–₱70,000 (FIES NCR D7–D9 decile range)
+- Household size: 1 member (contributes to household) (FIES NCR average: 4.03)
+- Savings rate: 30% (above FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (CFS: 35.3% ownership)
+- Emergency fund: 9 months (CFS: only 2.0% have 3+ months — top tier)
+- Debt ownership: None (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: High (above CFS average of 6.3/10)
+- Digital financial services: Active user (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
+- Groceries and utilities (contributes to household): ~15% (FIES food ratio: 41.1%)
+- Transportation (motorcycle fuel): ~5% (FIES transport ratio: 5.9%)
+- Insurance (HMO + life + personal accident): ~8% (FIES insurance ratio: 2.6%)
 - Consumer debt: ~0%
 - Discretionary (dining, hobbies, travel fund): ~17%
 - Savings/investment: ~30%
@@ -147,11 +210,24 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Regular employee at a government agency, 4 years tenure. Very consistent salary. Single, no dependents. Lives with parents (no rent).
 
-**Obligation Breakdown:**
-- Groceries and utilities (contributes to household): ~12%
-- Transportation: ~5%
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱30,000–₱40,000 (FIES NCR D5–D6 decile range)
+- Household size: 1–2 members (FIES NCR average: 4.03)
+- Savings rate: 5% (below FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (GSIS) (CFS: 35.3% ownership)
+- Emergency fund: 1.5 months (CFS: only 2.0% have 3+ months)
+- Debt ownership: Gadget installment (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: Moderate (CFS average: 6.3/10)
+- Digital financial services: Limited usage (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
+- Groceries and utilities (contributes to household): ~12% (FIES food ratio: 41.1%)
+- Transportation: ~5% (FIES transport ratio: 5.9%)
 - Consumer debt (gadget installment plans): ~8%
-- Insurance (GSIS): ~5%
+- Insurance (GSIS): ~5% (FIES insurance ratio: 2.6%)
 - Discretionary (online shopping, dining, entertainment): ~30%
 - Savings: ~5% (inconsistent — some months zero)
 - Personal spending: ~35%
@@ -171,11 +247,24 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Freelance graphic designer, 3 years self-employed. Income varies monthly (some months 2× others). Single, no dependents. Has 3 active retainer clients.
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱25,000–₱60,000 (variable) (FIES NCR D4–D7 decile range)
+- Household size: 1–2 members (FIES NCR average: 4.03)
+- Savings rate: 14% (below FIES NCR mean of 20.4% — variable income limits savings)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (CFS: 35.3% ownership)
+- Emergency fund: 4 months (CFS: only 2.0% have 3+ months)
+- Debt ownership: Business loan (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: Moderate-High (CFS average: 6.3/10)
+- Digital financial services: Active user (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Rent (1-bedroom, Quezon City): ~22%
-- Groceries and utilities: ~15%
-- Transportation: ~7%
-- Health insurance (PhilHealth + private): ~5%
+- Groceries and utilities: ~15% (FIES food ratio: 41.1%)
+- Transportation: ~7% (FIES transport ratio: 5.9%)
+- Health insurance (PhilHealth + private): ~5% (FIES health ratio: 2.4%)
 - Debt repayment (previous business loan): ~12%
 - Discretionary: ~10%
 - Savings/investment: ~14% (varies — more in good months)
@@ -196,12 +285,25 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Fixed-term project-based employee (6-month contracts) at a construction firm. Income gaps between contracts (1–3 weeks). Married, spouse is a part-time vendor.
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱18,000–₱40,000 (variable) (FIES NCR D3–D5 decile range)
+- Household size: 2–3 members (FIES NCR average: 4.03)
+- Savings rate: 0% (below FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: No (CFS: 35.3% ownership — below average)
+- Emergency fund: 0.3 months (CFS: only 2.0% have 3+ months)
+- Debt ownership: Multiple debts (2MP loan + credit card) (CFS: 29.3% have debt)
+- Credit card: Yes (CFS: 1.1% ownership — rare)
+- Financial risk tolerance: Low (below CFS average of 6.3/10)
+- Digital financial services: Limited (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Rent (room rental, Malabon): ~18%
-- Groceries and utilities: ~20%
-- Transportation: ~8%
+- Groceries and utilities: ~20% (FIES food ratio: 41.1%)
+- Transportation: ~8% (FIES transport ratio: 5.9%)
 - Debt repayment (2MP loan + credit card): ~15%
-- Child's school expenses: ~10%
+- Child's school expenses: ~10% (FIES education ratio: 1.7%)
 - Remittance to in-laws: ~5%
 - Discretionary: ~4%
 - Savings: ~0%
@@ -221,10 +323,23 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Freelance content writer and part-time virtual assistant, 2 years self-employed. Income variable but has built reserves during high-earning months. Single, no dependents. Lives with sibling (contributes to utilities only).
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱20,000–₱45,000 (variable) (FIES NCR D3–D6 decile range)
+- Household size: 1–2 members (FIES NCR average: 4.03)
+- Savings rate: 25% (above FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (CFS: 35.3% ownership)
+- Emergency fund: 7 months (CFS: only 2.0% have 3+ months — top tier)
+- Debt ownership: None (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: High (above CFS average of 6.3/10)
+- Digital financial services: Active user (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Utilities contribution: ~5%
-- Transportation: ~5%
-- Health insurance (private): ~4%
+- Transportation: ~5% (FIES transport ratio: 5.9%)
+- Health insurance (private): ~4% (FIES health ratio: 2.4%)
 - Discretionary (dining, subscriptions, hobbies): ~26%
 - Savings/investment: ~25% (variable — some months higher)
 - Business expenses: ~5%
@@ -245,11 +360,24 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Part-time tricycle driver and occasional market vendor. No formal employment contract. Income is daily and highly variable. Single, no dependents. Lives with elderly parent (contributes to household expenses).
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱8,000–₱20,000 (highly variable) (FIES NCR D1–D3 decile range)
+- Household size: 1–2 members (FIES NCR average: 4.03)
+- Savings rate: 0% (below FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: No (CFS: 35.3% ownership — below average)
+- Emergency fund: 1 month (CFS: only 2.0% have 3+ months)
+- Debt ownership: None (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: Low (below CFS average of 6.3/10)
+- Digital financial services: Minimal (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Household contribution: ~15%
-- Transportation/fuel: ~10%
-- Food (personal + shared household): ~15%
-- Health (out-of-pocket, no insurance): ~5%
+- Transportation/fuel: ~10% (FIES transport ratio: 5.9%)
+- Food (personal + shared household): ~15% (FIES food ratio: 41.1%)
+- Health (out-of-pocket, no insurance): ~5% (FIES health ratio: 2.4%)
 - Discretionary: ~10%
 - Savings: ~0% (inconsistent)
 - Remaining income: spent on miscellaneous/untracked
@@ -269,13 +397,26 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Recently re-employed regular employee at a retail company (3 months tenure). Was laid off from previous employer 4 months ago — depleted savings during unemployment. Married, spouse also recently re-employed.
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱20,000–₱35,000 (recovering) (FIES NCR D3–D5 decile range)
+- Household size: 2–3 members (FIES NCR average: 4.03)
+- Savings rate: 2% (below FIES NCR mean of 20.4% — rebuilding)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (depleted) (CFS: 35.3% ownership)
+- Emergency fund: 0.8 months (CFS: only 2.0% have 3+ months)
+- Debt ownership: Emergency credit card debt from unemployment (CFS: 29.3% have debt)
+- Credit card: Yes (CFS: 1.1% ownership)
+- Financial risk tolerance: Low (below CFS average of 6.3/10 — recovering from shock)
+- Digital financial services: Limited (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Rent (1-bedroom, Mandaluyong): ~20%
-- Groceries and utilities: ~18%
-- Transportation: ~8%
+- Groceries and utilities: ~18% (FIES food ratio: 41.1%)
+- Transportation: ~8% (FIES transport ratio: 5.9%)
 - Debt repayment (emergency credit card debt from unemployment): ~15%
 - Spouse's transportation: ~5%
-- Insurance (HMO, newly enrolled): ~4%
+- Insurance (HMO, newly enrolled): ~4% (FIES insurance ratio: 2.6%)
 - Discretionary: ~8%
 - Savings: ~2% (just restarted)
 
@@ -295,10 +436,23 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Part-time sales associate at a mall + occasional online selling. Income variable but has established a base from the retail job. Single, no dependents. Lives with parents (no rent).
 
-**Obligation Breakdown:**
-- Groceries and utilities (contributes to household): ~12%
-- Transportation: ~7%
-- Health expenses (PhilHealth + occasional checkups): ~4%
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱15,000–₱30,000 (variable) (FIES NCR D2–D4 decile range)
+- Household size: 1–2 members (FIES NCR average: 4.03)
+- Savings rate: 5% (below FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (CFS: 35.3% ownership)
+- Emergency fund: 2.5 months (CFS: only 2.0% have 3+ months — borderline)
+- Debt ownership: Small gadget loan (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: Moderate (CFS average: 6.3/10)
+- Digital financial services: Active user (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
+- Groceries and utilities (contributes to household): ~12% (FIES food ratio: 41.1%)
+- Transportation: ~7% (FIES transport ratio: 5.9%)
+- Health expenses (PhilHealth + occasional checkups): ~4% (FIES health ratio: 2.4%)
 - Debt repayment (small gadget loan): ~5%
 - Discretionary (dining, social, shopping): ~27%
 - Savings: ~5% (inconsistent)
@@ -320,12 +474,25 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Regular employee at a telecom company, 4 years tenure. Consistent salary. Married, spouse is a freelance tutor (variable income, not in system). 1 child (school-age).
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱45,000–₱55,000 (FIES NCR D6–D7 decile range)
+- Household size: 3–4 members (FIES NCR average: 4.03)
+- Savings rate: 5% (below FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (CFS: 35.3% ownership)
+- Emergency fund: 4 months (CFS: only 2.0% have 3+ months)
+- Debt ownership: Mortgage + car loan (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: Moderate (CFS average: 6.3/10)
+- Digital financial services: Limited (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Mortgage (condo unit, Taguig): ~25%
-- Groceries and utilities: ~18%
-- Transportation (family car amortization + fuel): ~12%
-- Child's school tuition: ~8%
-- Insurance (HMO + life): ~6%
+- Groceries and utilities: ~18% (FIES food ratio: 41.1%)
+- Transportation (family car amortization + fuel): ~12% (FIES transport ratio: 5.9%)
+- Child's school tuition: ~8% (FIES education ratio: 1.7%)
+- Insurance (HMO + life): ~6% (FIES insurance ratio: 2.6%)
 - Debt repayment (car loan): (included in transportation)
 - Discretionary: ~12%
 - Savings: ~5%
@@ -346,11 +513,24 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Employment Context:** Regular employee at a marketing agency, 2 years tenure. Consistent salary with minor variation. Single, no dependents. Lives alone (rents a studio).
 
-**Obligation Breakdown:**
+**FIES-Grounded Financial Parameters:**
+- Monthly income: ₱35,000–₱50,000 (FIES NCR D5–D7 decile range)
+- Household size: 1 member (FIES NCR average: 4.03)
+- Savings rate: 2% (below FIES NCR mean of 20.4%)
+
+**CFS-Grounded Behavioral Patterns:**
+- Deposit account: Yes (CFS: 35.3% ownership)
+- Emergency fund: 1 month (CFS: only 2.0% have 3+ months)
+- Debt ownership: None (CFS: 29.3% have debt)
+- Credit card: No (CFS: 1.1% ownership)
+- Financial risk tolerance: Moderate (CFS average: 6.3/10)
+- Digital financial services: Active user (CFS: 24.3% e-money, 17.7% mobile banking)
+
+**Obligation Breakdown (FIES-calibrated ratios):**
 - Rent (studio, BGC): ~20%
-- Groceries and utilities: ~12%
-- Transportation: ~6%
-- Insurance (HMO only): ~3%
+- Groceries and utilities: ~12% (FIES food ratio: 41.1%)
+- Transportation: ~6% (FIES transport ratio: 5.9%)
+- Insurance (HMO only): ~3% (FIES insurance ratio: 2.6%)
 - Discretionary (dining out, bar, online shopping, gadgets): ~35%
 - Savings: ~2% (inconsistent — some months zero)
 - Subscriptions (streaming, gym, apps): ~12%

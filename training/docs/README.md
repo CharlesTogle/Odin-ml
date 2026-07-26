@@ -16,6 +16,13 @@
 | **9. Deployment** | Pending | Containerized microservices, CI/CD pipeline | `prerequisites/deployment-architecture.md` |
 | **10. Model Monitoring** | Pending | Drift detection, retraining triggers | — |
 
+## Data Sources
+
+| Source | Year | Scope | Use |
+|--------|------|-------|-----|
+| **PSA 2023 FIES NCR** | 2023 | 41,380 households, 87 columns | Financial numerical baselines (income, expenditure, savings rates) |
+| **BSP 2021 Consumer Finance Survey** | 2021 | 267 pages, nationwide | Behavioral/attitudinal patterns (savings behavior, debt patterns, financial inclusion) |
+
 ## Documentation Structure
 
 ```
@@ -24,7 +31,10 @@ docs/
 ├─ 1_problem-statement/
 │  ├─ README.md                          # Phase 1 in-depth guide
 │  ├─ MDD.md                             # Model Design Document (PFP Classifier)
-│  └─ MDD - Template.md                  # Blank MDD template
+│  ├─ MDD - Template.md                  # Blank MDD template
+│  ├─ bsp-fies-crosswalk.md              # BSP CFS ↔ FIES NCR field mapping + archetype justification
+│  ├─ synthetic-injection-rules.md       # Rules for FIES→Persona→Transaction generation
+│  └─ persona-validation-list.md         # 12 archetypes (A-L) for SME review
 ├─ 2_data-collection/
 │  ├─ README.md                          # Phase 2 in-depth guide
 │  └─ FIES Dictionary & Valueset.csv     # FIES variable ID mapping
@@ -40,17 +50,16 @@ docs/
 │  ├─ README.md                          # Phase 5 in-depth guide
 │  └─ feature-engineering.md             # Feature engineering pipeline documentation
 ├─ 6_model-training/
-│  └─ README.md                          # Phase 6: PFP Classifier training (Tier 0-4)
+│  ├─ README.md                          # Phase 6: PFP Classifier training (Tier 0-4)
+│  ├─ forecaster-training.md             # Forecaster training (RF + PyTorch LSTM/GRU/BiLSTM)
+│  └─ anomaly-training.md                # Anomaly Detector training (IF + OCSVM + AE + Ensemble)
 ├─ prerequisites/
 │  ├─ feature-set.md                     # Complete feature definitions (3 models)
 │  ├─ walk-forward-validation.md         # Temporal validation methodology
 │  ├─ partial-window-splits.md           # Train/val/test splitting strategy
 │  ├─ roc-cutoff-selection.md            # Threshold calibration for PFP
 │  ├─ module-integration.md              # Inter-module API contracts
-│  ├─ deployment-architecture.md         # Container/k8s/CI-CD design
-│  ├─ synthetic-injection-rules.md       # 20 rules for FIES→Persona→Transaction
-│  ├─ persona-validation-list.md         # 12 archetypes (A-L) for SME review
-│  └─ TODO-MDD-Gaps.md                  # Implementation gap tracker
+│  └─ deployment-architecture.md         # Container/k8s/CI-CD design
 └─ standards/
    ├─ REPOSITORY-STANDARDS.md            # Coding standards
    ├─ design-standards.md                # UI design system
@@ -66,8 +75,12 @@ docs/
 | `scripts/generate_transactions.py` | 12-month transaction history generator | Complete |
 | `scripts/preprocessor.py` | Synthesis + splitting + raw data export | Complete |
 | `scripts/feature_engineering.py` | 17 derived features + encoding + selection + PCA | Complete |
+| `scripts/feature_engineering_forecaster.py` | Forecaster-specific feature engineering (RFM, STL, lags) | Complete |
+| `scripts/feature_engineering_anomaly.py` | Anomaly-specific per-transaction feature engineering (22 features) | Complete |
 | `scripts/eda.py` | Exploratory data analysis with plots + report | Complete |
 | `scripts/train_fbp.py` | PFP Classifier training (Tier 0-4), temporal fold evaluation | Complete |
+| `scripts/train_forecaster.py` | Forecaster training (RF + PyTorch LSTM/GRU/BiLSTM) | Complete |
+| `scripts/train_anomaly.py` | Anomaly Detector training (IF + OCSVM + AE + Ensemble) | Complete |
 | `scripts/dimension_discovery.py` | Phase 4.5: clustering analysis + overlay feature computation | Complete |
 | `scripts/fies_columns.py` | FIES variable ID ↔ CSV column mapping | Complete |
 | `scripts/synthesizer.py` | Deprecated — use `preprocessor.py` instead | Deprecated |
@@ -100,9 +113,13 @@ docs/
    → Trains PFP Classifier model (Tier 0-4)
    → Generates: models/fbp/ (trained models + evaluation.json + evaluation_report.md)
 
-6. [Next] python scripts/train_forecaster.py --input datasets/engineered/ --output models/forecaster
-   → Trains LSTM Forecaster model
+6. python scripts/feature_engineering_forecaster.py
+   → Generates forecaster feature sets (datasets/forecaster/)
 
-7. [Next] python scripts/train_anomaly.py --input datasets/engineered/ --output models/anomaly
+7. python scripts/train_forecaster.py
+   → Trains Forecaster model (RF + PyTorch LSTM/GRU/BiLSTM)
+   → Generates: models/forecaster/ (trained models + evaluation)
+
+8. [Next] python scripts/train_anomaly.py --input datasets/engineered/ --output models/anomaly
    → Trains Anomaly Detector model
 ```

@@ -6,9 +6,9 @@ using temporal walk-forward evaluation.
 
 Tiers:
   Tier 2: Random Forest Regressor (monthly aggregated features)
-  Tier 3a: LSTM (daily feature sequences)
-  Tier 3b: GRU (daily feature sequences)
-  Tier 3c: BiLSTM (daily feature sequences)
+  Tier 3a: LSTM (daily feature sequences) — PyTorch
+  Tier 3b: GRU (daily feature sequences) — PyTorch
+  Tier 3c: BiLSTM (daily feature sequences) — PyTorch
 
 Evaluation:
   - 5-fold expanding window (temporal_folds.json)
@@ -39,39 +39,16 @@ from sklearn.preprocessing import StandardScaler
 
 import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-import multiprocessing, importlib
-
-def _try_import_tf(result_queue):
-    try:
-        import tensorflow as tf
-        from tensorflow import keras
-        from tensorflow.keras import layers
-        result_queue.put(("ok", tf, keras, layers))
-    except Exception as e:
-        result_queue.put(("err", str(e), None, None))
-
-HAS_TENSORFLOW = False
-tf = keras = layers = None
+HAS_PYTORCH = False
+torch = None
 try:
-    q = multiprocessing.Queue()
-    p = multiprocessing.Process(target=_try_import_tf, args=(q,))
-    p.start()
-    p.join(timeout=45)
-    if p.is_alive():
-        p.terminate()
-        p.join(timeout=5)
-        warnings.warn("tensorflow import timed out — Tier 3 (LSTM/GRU/BiLSTM) will be skipped")
-    elif not q.empty():
-        status, a, b, c = q.get_nowait()
-        if status == "ok":
-            tf, keras, layers = a, b, c
-            HAS_TENSORFLOW = True
-        else:
-            warnings.warn(f"tensorflow import failed ({a}) — Tier 3 (LSTM/GRU/BiLSTM) will be skipped")
-except Exception:
-    warnings.warn("tensorflow unavailable — Tier 3 (LSTM/GRU/BiLSTM) will be skipped")
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, TensorDataset
+    HAS_PYTORCH = True
+except ImportError:
+    warnings.warn("torch unavailable — Tier 3 (LSTM/GRU/BiLSTM) will be skipped")
 
 try:
     import matplotlib
@@ -271,53 +248,140 @@ def train_rf(X_train: np.ndarray, y_train: np.ndarray,
     return model, y_pred
 
 
-def build_lstm_model(input_shape: tuple, model_type: str = "lstm") -> Any:
-    """Build LSTM/GRU/BiLSTM model."""
-    if not HAS_TENSORFLOW:
-        return None
+# ---------------------------------------------------------------------------
+# PyTorch Sequence Models (LSTM / GRU / BiLSTM)
+# ---------------------------------------------------------------------------
 
-    model = keras.Sequential()
-    model.add(layers.Input(shape=input_shape))
+class _SequenceForecaster(nn.Module):
+    """PyTorch module for LSTM/GRU/BiLSTM sequence forecasting."""
 
-    if model_type == "lstm":
-        model.add(layers.LSTM(32, dropout=0.2))
-    elif model_type == "gru":
-        model.add(layers.GRU(32, dropout=0.2))
-    elif model_type == "bilstm":
-        model.add(layers.Bidirectional(layers.LSTM(32, dropout=0.2)))
+    def __init__(self, input_size: int, hidden_size: int = 32,
+                 model_type: str = "lstm", dropout: float = 0.2):
+        super().__init__()
+        self.model_type = model_type
+        self.hidden_size = hidden_size
 
-    model.add(layers.Dense(32, activation="relu"))
-    model.add(layers.Dense(1))
+        if model_type == "lstm":
+            self.rnn = nn.LSTM(input_size, hidden_size, batch_first=True)
+        elif model_type == "gru":
+            self.rnn = nn.GRU(input_size, hidden_size, batch_first=True)
+        elif model_type == "bilstm":
+            self.rnn = nn.LSTM(input_size, hidden_size, batch_first=True,
+                               bidirectional=True)
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
 
-    model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001),
-                  loss="mse", metrics=["mae"])
+        self.dropout = nn.Dropout(dropout)
+
+        rnn_out_size = hidden_size * 2 if model_type == "bilstm" else hidden_size
+        self.head = nn.Sequential(
+            nn.Linear(rnn_out_size, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+        )
+
+    def forward(self, x):
+        rnn_out, _ = self.rnn(x)
+        last = rnn_out[:, -1, :]
+        last = self.dropout(last)
+        return self.head(last).squeeze(-1)
+
+
+def _train_pytorch_model(
+    model: nn.Module,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    epochs: int = 50,
+    batch_size: int = 64,
+    lr: float = 0.001,
+    patience: int = 10,
+    verbose: bool = False,
+) -> nn.Module:
+    """Train a PyTorch model with early stopping on validation loss."""
+    device = torch.device("cpu")
+    model = model.to(device)
+
+    X_t = torch.tensor(X_train, dtype=torch.float32)
+    y_t = torch.tensor(y_train, dtype=torch.float32)
+    X_v = torch.tensor(X_val, dtype=torch.float32)
+    y_v = torch.tensor(y_val, dtype=torch.float32)
+
+    train_ds = TensorDataset(X_t, y_t)
+    train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.MSELoss()
+
+    best_val_loss = float("inf")
+    best_state = None
+    no_improve = 0
+
+    for epoch in range(epochs):
+        model.train()
+        for xb, yb in train_dl:
+            optimizer.zero_grad()
+            pred = model(xb)
+            loss = criterion(pred, yb)
+            loss.backward()
+            optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_pred = model(X_v)
+            val_loss = criterion(val_pred, y_v).item()
+
+        if val_loss < best_val_loss - 1e-6:
+            best_val_loss = val_loss
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= patience:
+                if verbose:
+                    print(f"    Early stopping at epoch {epoch+1}")
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
     return model
+
+
+def build_lstm_model(input_shape: tuple, model_type: str = "lstm") -> Any:
+    """Build LSTM/GRU/BiLSTM model (PyTorch)."""
+    if not HAS_PYTORCH:
+        return None
+    seq_len, n_feat = input_shape
+    return _SequenceForecaster(input_size=n_feat, hidden_size=32,
+                               model_type=model_type)
 
 
 def train_lstm_variant(X_train: np.ndarray, y_train: np.ndarray,
                        X_test: np.ndarray, y_test: np.ndarray,
                        model_type: str = "lstm") -> tuple:
-    """Train LSTM/GRU/BiLSTM model."""
-    if not HAS_TENSORFLOW:
+    """Train LSTM/GRU/BiLSTM model (PyTorch)."""
+    if not HAS_PYTORCH:
         return None, np.zeros(len(y_test))
 
     model = build_lstm_model((X_train.shape[1], X_train.shape[2]), model_type)
     if model is None:
         return None, np.zeros(len(y_test))
 
-    early_stop = keras.callbacks.EarlyStopping(
-        monitor="val_loss", patience=5, restore_best_weights=True
+    n_val = max(1, int(len(X_train) * 0.15))
+    X_val, y_val = X_train[-n_val:], y_train[-n_val:]
+    X_tr, y_tr = X_train[:-n_val], y_train[:-n_val]
+
+    model = _train_pytorch_model(
+        model, X_tr, y_tr, X_val, y_val,
+        epochs=50, batch_size=64, lr=0.001, patience=10,
     )
 
-    model.fit(
-        X_train, y_train,
-        validation_split=0.15,
-        epochs=5, batch_size=64,
-        callbacks=[early_stop],
-        verbose=0,
-    )
+    model.eval()
+    with torch.no_grad():
+        X_test_t = torch.tensor(X_test, dtype=torch.float32)
+        y_pred = model(X_test_t).numpy()
 
-    y_pred = model.predict(X_test, verbose=0).flatten()
     return model, y_pred
 
 
@@ -410,7 +474,7 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
             print(f"  RF: Skipped (train={len(X_train_rf)}, test={len(X_test_rf)})")
 
         # --- Tier 3: LSTM / GRU / BiLSTM ---
-        if HAS_TENSORFLOW:
+        if HAS_PYTORCH:
             X_train_seq, y_train_seq, _ = prepare_monthly_sequences(
                 train_monthly, feature_cols, lookback=3
             )
@@ -445,7 +509,7 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
                 print(f"  LSTM: Skipped (train={len(X_train_seq)}, "
                       f"test={len(X_test_seq)})")
         else:
-            print("  LSTM/GRU/BiLSTM: Skipped (tensorflow not installed)")
+            print("  LSTM/GRU/BiLSTM: Skipped (pytorch not installed)")
 
         all_fold_results.append(fold_results)
 
@@ -536,7 +600,7 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path,
                     output_dir / "tier2_random_forest.joblib")
         print("  Saved tier2_random_forest.joblib")
 
-    elif winner.startswith("tier3_") and HAS_TENSORFLOW:
+    elif winner.startswith("tier3_") and HAS_PYTORCH:
         variant = winner.replace("tier3_", "")
         X, y, _ = prepare_monthly_sequences(monthly, feature_cols, lookback=3)
         if len(X) > 0:
@@ -546,12 +610,24 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path,
             X_s = X_flat_s.reshape(n, seq_len, n_feat)
 
             model = build_lstm_model((seq_len, n_feat), variant)
-            model.fit(X_s, y, epochs=50, batch_size=32, verbose=0)
-            model.save(output_dir / f"{winner}.keras")
-            joblib.dump({"scaler": scaler, "feature_cols": feature_cols,
-                         "seq_length": seq_len},
+            X_t = torch.tensor(X_s, dtype=torch.float32)
+            y_t = torch.tensor(y, dtype=torch.float32)
+            n_val = max(1, int(len(X_t) * 0.15))
+            model = _train_pytorch_model(
+                model, X_t[:-n_val].numpy(), y_t[:-n_val].numpy(),
+                X_t[-n_val:].numpy(), y_t[-n_val:].numpy(),
+                epochs=50, batch_size=32,
+            )
+            torch.save({
+                "model_state_dict": model.state_dict(),
+                "model_type": variant,
+                "input_size": n_feat,
+                "hidden_size": 32,
+                "seq_length": seq_len,
+            }, output_dir / f"{winner}.pth")
+            joblib.dump({"scaler": scaler, "feature_cols": feature_cols},
                         output_dir / f"{winner}_meta.joblib")
-            print(f"  Saved {winner}.keras + meta.joblib")
+            print(f"  Saved {winner}.pth + meta.joblib")
 
 
 # ---------------------------------------------------------------------------

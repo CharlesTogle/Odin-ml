@@ -7,7 +7,7 @@ anomaly detection on synthetic financial data.
 Tiers:
   Tier 0: Majority-class baseline (sanity floor)
   Tier 1: IQR (statistical, per-feature)
-  Tier 2: Isolation Forest, One-Class SVM, Autoencoder (Keras)
+  Tier 2: Isolation Forest, One-Class SVM, Autoencoder (PyTorch)
   Tier 3: Hybrid Ensemble (voting from Tier 1-2 detectors)
 
 Evaluation:
@@ -43,39 +43,16 @@ from sklearn.svm import OneClassSVM
 
 import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-import multiprocessing
-
-def _try_import_tf(result_queue):
-    try:
-        import tensorflow as tf
-        from tensorflow import keras
-        from tensorflow.keras import layers, callbacks
-        result_queue.put(("ok", tf, keras, layers, callbacks))
-    except Exception as e:
-        result_queue.put(("err", str(e), None, None, None))
-
-HAS_TENSORFLOW = False
-tf = keras = layers = callbacks = None
+HAS_PYTORCH = False
+torch = None
 try:
-    q = multiprocessing.Queue()
-    p = multiprocessing.Process(target=_try_import_tf, args=(q,))
-    p.start()
-    p.join(timeout=45)
-    if p.is_alive():
-        p.terminate()
-        p.join(timeout=5)
-        warnings.warn("tensorflow import timed out — Tier 2 Autoencoder will be skipped")
-    elif not q.empty():
-        status, a, b, c, d = q.get_nowait()
-        if status == "ok":
-            tf, keras, layers, callbacks = a, b, c, d
-            HAS_TENSORFLOW = True
-        else:
-            warnings.warn(f"tensorflow import failed ({a}) — Tier 2 Autoencoder will be skipped")
-except Exception:
-    warnings.warn("tensorflow unavailable — Tier 2 Autoencoder will be skipped")
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, TensorDataset
+    HAS_PYTORCH = True
+except ImportError:
+    warnings.warn("torch unavailable — Tier 2 Autoencoder will be skipped")
 
 try:
     import matplotlib
@@ -281,44 +258,100 @@ def train_ocsvm(X_train: np.ndarray, y_train: np.ndarray,
 
 
 # ---------------------------------------------------------------------------
-# Tier 2: Autoencoder (Keras)
+# Tier 2: Autoencoder (PyTorch)
 # ---------------------------------------------------------------------------
 
-def build_autoencoder(input_dim: int, encoding_dim: int = 7):
-    """Build a simple autoencoder for anomaly detection."""
-    encoder_input = layers.Input(shape=(input_dim,))
-    encoded = layers.Dense(encoding_dim, activation="relu")(encoder_input)
-    encoded = layers.Dense(encoding_dim // 2, activation="relu")(encoded)
-    decoded = layers.Dense(encoding_dim, activation="relu")(encoded)
-    decoded = layers.Dense(input_dim, activation="linear")(decoded)
+class _Autoencoder(nn.Module):
+    """PyTorch autoencoder for anomaly detection."""
 
-    autoencoder = keras.Model(encoder_input, decoded)
-    autoencoder.compile(optimizer="adam", loss="mse")
-    return autoencoder
+    def __init__(self, input_dim: int, encoding_dim: int = 7):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, encoding_dim),
+            nn.ReLU(),
+            nn.Linear(encoding_dim, encoding_dim // 2),
+            nn.ReLU(),
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(encoding_dim // 2, encoding_dim),
+            nn.ReLU(),
+            nn.Linear(encoding_dim, input_dim),
+        )
+
+    def forward(self, x):
+        return self.decoder(self.encoder(x))
+
+
+def build_autoencoder(input_dim: int, encoding_dim: int = 7):
+    """Build a simple autoencoder for anomaly detection (PyTorch)."""
+    if not HAS_PYTORCH:
+        return None
+    return _Autoencoder(input_dim, encoding_dim)
 
 
 def train_autoencoder(X_train: np.ndarray, y_train: np.ndarray,
                       X_val: np.ndarray, y_val: np.ndarray):
     """Train autoencoder; anomalies have higher reconstruction error."""
-    if not HAS_TENSORFLOW:
+    if not HAS_PYTORCH:
         return None, None, -1
 
     input_dim = X_train.shape[1]
     model = build_autoencoder(input_dim)
+    if model is None:
+        return None, None, -1
 
-    early_stop = callbacks.EarlyStopping(patience=5, restore_best_weights=True)
-    reduce_lr = callbacks.ReduceLROnPlateau(factor=0.5, patience=3)
+    device = torch.device("cpu")
+    model = model.to(device)
 
-    model.fit(
-        X_train, X_train,
-        epochs=30,
-        batch_size=128,
-        validation_split=0.1,
-        callbacks=[early_stop, reduce_lr],
-        verbose=0,
+    X_t = torch.tensor(X_train, dtype=torch.float32)
+    n_val = max(1, int(len(X_t) * 0.1))
+    X_tr = X_t[:len(X_t) - n_val]
+    X_v = X_t[len(X_t) - n_val:]
+
+    train_ds = TensorDataset(X_tr, X_tr)
+    train_dl = DataLoader(train_ds, batch_size=128, shuffle=True)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=3
     )
 
-    val_recon = model.predict(X_val, verbose=0)
+    best_val_loss = float("inf")
+    best_state = None
+    no_improve = 0
+
+    for epoch in range(30):
+        model.train()
+        for xb, _ in train_dl:
+            optimizer.zero_grad()
+            recon = model(xb)
+            loss = criterion(recon, xb)
+            loss.backward()
+            optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_recon = model(X_v)
+            val_loss = criterion(val_recon, X_v).item()
+        scheduler.step(val_loss)
+
+        if val_loss < best_val_loss - 1e-6:
+            best_val_loss = val_loss
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            no_improve = 0
+        else:
+            no_improve += 1
+            if no_improve >= 5:
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
+    model.eval()
+    with torch.no_grad():
+        X_val_t = torch.tensor(X_val, dtype=torch.float32)
+        val_recon = model(X_val_t).numpy()
     val_scores = np.mean((X_val - val_recon) ** 2, axis=1)
     val_scores = (val_scores - val_scores.min()) / (val_scores.max() - val_scores.min() + 1e-8)
 
@@ -345,8 +378,11 @@ class HybridEnsemble:
             elif hasattr(detector, "decision_function"):
                 s = -detector.decision_function(X)
                 s = (s - s.min()) / (s.max() - s.min() + 1e-8)
-            elif hasattr(detector, "predict") and hasattr(detector, "model"):
-                recon = detector.model.predict(X, verbose=0)
+            elif isinstance(detector, nn.Module):
+                detector.eval()
+                with torch.no_grad():
+                    X_t = torch.tensor(X, dtype=torch.float32)
+                    recon = detector(X_t).numpy()
                 s = np.mean((X - recon) ** 2, axis=1)
                 s = (s - s.min()) / (s.max() - s.min() + 1e-8)
             else:
@@ -485,12 +521,14 @@ def main():
             ocsvm_metrics = {"pr_auc": 0, "best_f1": 0}
 
         # Tier 2: Autoencoder
-        if HAS_TENSORFLOW:
+        if HAS_PYTORCH:
             ae_model, ae_loss, ae_val_score = train_autoencoder(
                 X_train, y_train, X_test, y_test
             )
             if ae_model is not None:
-                ae_recon = ae_model.predict(X_test, verbose=0)
+                ae_model.eval()
+                with torch.no_grad():
+                    ae_recon = ae_model(torch.tensor(X_test, dtype=torch.float32)).numpy()
                 ae_scores = np.mean((X_test - ae_recon) ** 2, axis=1)
                 ae_scores = (ae_scores - ae_scores.min()) / (ae_scores.max() - ae_scores.min() + 1e-8)
                 ae_metrics = compute_metrics(y_test, ae_scores)
@@ -601,11 +639,29 @@ def main():
         winner.fit(X_full_train)
         test_scores = -winner.decision_function(X_test_final)
         test_scores = (test_scores - test_scores.min()) / (test_scores.max() - test_scores.min() + 1e-8)
-    elif best_model_name == "tier2_autoencoder" and HAS_TENSORFLOW:
+    elif best_model_name == "tier2_autoencoder" and HAS_PYTORCH:
         winner = build_autoencoder(X_full_train.shape[1])
-        winner.fit(X_full_train, X_full_train, epochs=50, batch_size=64,
-                   validation_split=0.1, verbose=0)
-        test_recon = winner.predict(X_test_final, verbose=0)
+        # Train on full training data
+        device = torch.device("cpu")
+        winner = winner.to(device)
+        X_t = torch.tensor(X_full_train, dtype=torch.float32)
+        n_val = max(1, int(len(X_t) * 0.1))
+        X_tr, X_v = X_t[:len(X_t)-n_val], X_t[len(X_t)-n_val:]
+        train_ds = TensorDataset(X_tr, X_tr)
+        train_dl = DataLoader(train_ds, batch_size=64, shuffle=True)
+        optimizer = torch.optim.Adam(winner.parameters(), lr=0.001)
+        criterion = nn.MSELoss()
+        for epoch in range(50):
+            winner.train()
+            for xb, _ in train_dl:
+                optimizer.zero_grad()
+                loss = criterion(xb, winner(xb))
+                loss.backward()
+                optimizer.step()
+        winner.eval()
+        with torch.no_grad():
+            X_test_t = torch.tensor(X_test_final, dtype=torch.float32)
+            test_recon = winner(X_test_t).numpy()
         test_scores = np.mean((X_test_final - test_recon) ** 2, axis=1)
         test_scores = (test_scores - test_scores.min()) / (test_scores.max() - test_scores.min() + 1e-8)
     elif best_model_name == "tier3_ensemble":

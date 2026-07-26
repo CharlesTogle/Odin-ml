@@ -280,7 +280,8 @@ Secondary repository for:
 - Python `3.14.4`
 - FastAPI `0.135.3`
 - Uvicorn
-- TensorFlow `2.21.0`
+- TensorFlow `2.21.0` (pinned but unavailable in current environment — use PyTorch for deep learning)
+- PyTorch (primary deep learning framework — use torch.nn for LSTM, GRU, BiLSTM)
 - scikit-learn `1.8.0`
 - Pytest
 - HTTPX

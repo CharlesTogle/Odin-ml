@@ -44,28 +44,42 @@ def load_data(transactions_path, splits_path):
 
 
 def build_category_history(txn):
-    """Precompute per-persona category history for baseline computation."""
+    """Precompute per-persona category and income history for baseline computation."""
     expense_mask = txn["transaction_type"] == "expense"
+    income_mask = txn["transaction_type"] == "income"
     history = {}
 
-    for pid, group in txn[expense_mask].groupby("persona_id"):
-        group = group.sort_values("date")
-        cat_monthly = group.groupby(["month", "category"]).size().unstack(fill_value=0)
+    for pid, group in txn.groupby("persona_id"):
+        exp_group = group[expense_mask].sort_values("date")
+        inc_group = group[income_mask].sort_values("date")
+
+        cat_monthly = exp_group.groupby(["month", "category"]).size().unstack(fill_value=0)
 
         cat_amounts = {}
         cat_months = {}
-        for cat, cat_group in group.groupby("category"):
+        for cat, cat_group in exp_group.groupby("category"):
             cat_amounts[cat] = cat_group["amount"].values
             cat_months[cat] = cat_group["month"].values
+
+        # Income by month
+        inc_monthly = inc_group.groupby("month")["amount"].sum() if len(inc_group) > 0 else pd.Series(dtype=float)
+        inc_amounts = inc_group["amount"].values if len(inc_group) > 0 else np.array([])
+
+        # Transaction count by month
+        all_exp = exp_group.copy()
+        txn_count_by_month = all_exp.groupby("month").size() if len(all_exp) > 0 else pd.Series(dtype=int)
 
         history[pid] = {
             "months": sorted(group["month"].unique()),
             "cat_monthly_counts": cat_monthly,
             "cat_amounts": cat_amounts,
             "cat_months": cat_months,
-            "all_amounts": group["amount"].values,
-            "all_months": group["month"].values,
-            "all_dates": group["date"].values,
+            "all_amounts": exp_group["amount"].values,
+            "all_months": exp_group["month"].values,
+            "all_dates": exp_group["date"].values,
+            "inc_monthly": inc_monthly,
+            "inc_amounts": inc_amounts,
+            "txn_count_by_month": txn_count_by_month,
         }
     return history
 
@@ -104,9 +118,28 @@ def compute_features_for_persona(pid, txn_row, history, baseline_months=3):
     bl_amounts = h["all_amounts"][bl_mask]
 
     # Overall stats
-    mean_income = float(txn_row.get("amount", 0)) if txn_row["transaction_type"] == "income" else 0.0
     mean_expenses = float(bl_amounts.mean()) if len(bl_amounts) > 0 else 0.0
     std_expenses = float(bl_amounts.std()) if len(bl_amounts) > 1 else 0.0
+
+    # Income stats from baseline
+    inc_monthly = h["inc_monthly"]
+    bl_inc = inc_monthly.loc[inc_monthly.index.isin(bl_months)] if len(inc_monthly) > 0 else pd.Series(dtype=float)
+    mean_income = float(bl_inc.mean()) if len(bl_inc) > 0 else 0.0
+    std_income = float(bl_inc.std()) if len(bl_inc) > 1 else 0.0
+
+    # Current month income
+    current_month_inc = float(inc_monthly.get(current_month, 0)) if current_month in inc_monthly.index else 0.0
+
+    # Frequency deviation: current month txn count vs baseline average
+    txn_count = h["txn_count_by_month"]
+    bl_counts = txn_count.loc[txn_count.index.isin(bl_months)] if len(txn_count) > 0 else pd.Series(dtype=int)
+    mean_freq = float(bl_counts.mean()) if len(bl_counts) > 0 else 0.0
+    std_freq = float(bl_counts.std()) if len(bl_counts) > 1 else 0.0
+    current_count = float(txn_count.get(current_month, 0)) if current_month in txn_count.index else 0.0
+    freq_dev = (current_count - mean_freq) / std_freq if std_freq > 0 else 0.0
+
+    # Income deviation
+    inc_dev = (current_month_inc - mean_income) / std_income if std_income > 0 else 0.0
 
     # Category-specific stats
     cat_amounts = h["cat_amounts"].get(current_cat, np.array([]))
@@ -161,8 +194,8 @@ def compute_features_for_persona(pid, txn_row, history, baseline_months=3):
 
     return {
         # Baseline features
-        "mean_income_rolling": 0.0,  # placeholder
-        "std_income_rolling": 0.0,
+        "mean_income_rolling": mean_income,
+        "std_income_rolling": std_income,
         "mean_expenses_rolling": mean_expenses,
         "std_expenses_rolling": std_expenses,
         "category_dist": float(cat_props.max()) if len(cat_props) > 0 else 0.0,
@@ -174,8 +207,8 @@ def compute_features_for_persona(pid, txn_row, history, baseline_months=3):
         # Detection features
         "amount_deviation": amount_dev,
         "category_deviation": cat_dev,
-        "frequency_deviation": 0.0,  # placeholder
-        "income_deviation": 0.0,
+        "frequency_deviation": freq_dev,
+        "income_deviation": inc_dev,
         "expense_deviation": amount_dev,
         "is_novel_category": is_novel,
         "amount_vs_category_mean": amount_cat_dev,

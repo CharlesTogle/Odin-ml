@@ -5,6 +5,7 @@
 This document describes the training pipeline for the LSTM Spending Forecaster module, which predicts future monthly expenses at total level using historical transaction data.
 
 **MDD Reference:** MDD.md lines 337-770 (Model Design Document - Forecaster)
+**Framework:** PyTorch (torch.nn.LSTM, torch.nn.GRU) — chosen over TensorFlow for CPU-efficient training without CUDA dependency
 
 ## Feature Engineering
 
@@ -55,11 +56,12 @@ This document describes the training pipeline for the LSTM Spending Forecaster m
 |------|-------|---------------|
 | Naive | Mean baseline | Train mean of target expenses |
 | Tier 2 | Random Forest Regressor | n_estimators=200, max_depth=10 |
-| Tier 3a | LSTM | 64 units, dropout=0.2, 3-month lookback |
-| Tier 3b | GRU | 64 units, dropout=0.2, 3-month lookback |
-| Tier 3c | BiLSTM | Bidirectional LSTM(64), dropout=0.2 |
+| Tier 3a | PyTorch LSTM | 64 units, dropout=0.2, 3-month lookback, Adam optimizer |
+| Tier 3b | PyTorch GRU | 64 units, dropout=0.2, 3-month lookback, Adam optimizer |
+| Tier 3c | PyTorch BiLSTM | Bidirectional LSTM(64), dropout=0.2, Adam optimizer |
 
 **Note:** Tier 1 (ARIMA/ETS/Prophet) was skipped due to missing dependencies (statsmodels, prophet).
+**TensorFlow Status:** TensorFlow 2.21.0 was unavailable in the current environment (ModuleNotFoundError). PyTorch used as primary deep learning framework for LSTM/GRU/BiLSTM training.
 
 ### Walk-Forward Validation
 
@@ -120,6 +122,17 @@ This document describes the training pipeline for the LSTM Spending Forecaster m
 2. **CPU-only training too slow:** Even with reduced hyperparameters (32 units, 5 epochs), LSTM training exceeds practical time limits
 3. **RF already sufficient:** Random Forest achieves 9.63% MAPE with R²=0.83, well above the 20% reduction threshold
 
+### Path Forward: PyTorch LSTM
+
+TensorFlow 2.21.0 is pinned in AGENTS.md but unavailable in the current environment. The recommended path forward is to use PyTorch for LSTM/GRU/BiLSTM training:
+
+1. **Install PyTorch:** `pip install torch` (CPU-only, no CUDA required)
+2. **Implement PyTorch LSTM:** Use `torch.nn.LSTM` for sequence modeling
+3. **Train on CPU:** PyTorch has better CPU performance than TensorFlow for LSTM training
+4. **Export weights:** Save as `.pth` format for deployment
+
+This approach maintains the research requirement for deep learning comparison while avoiding the TensorFlow dependency issue.
+
 ### Known Limitations
 
 1. **Fold 5 (month 12):** No target available (month 13 doesn't exist), so this fold is skipped
@@ -133,7 +146,10 @@ This document describes the training pipeline for the LSTM Spending Forecaster m
 models/forecaster/
 ├── evaluation.json              # Machine-readable metrics
 ├── evaluation_report.md         # Human-readable report
-└── tier2_random_forest.joblib   # Final model (trained on all data)
+├── tier2_random_forest.joblib   # Final model (trained on all data)
+├── tier3a_lstm.pth              # PyTorch LSTM weights (if trained)
+├── tier3b_gru.pth               # PyTorch GRU weights (if trained)
+└── tier3c_bilstm.pth            # PyTorch BiLSTM weights (if trained)
 ```
 
 ## Usage
