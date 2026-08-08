@@ -11,7 +11,7 @@
 | **4.5. Dimension & Threshold Discovery** | Complete | Dimension threshold candidates, clustering analysis, binary split validation | `4.5_dimension-threshold-discovery/`, `scripts/dimension_discovery.py` |
 | **5. Feature Engineering** | Complete | 17 derived features, cyclical encoding, interaction features, feature selection, PCA | `5_feature-engineering/`, `scripts/feature_engineering.py` |
 | **6. Model Design** | Complete | Feature sets, ROC cutoffs, walk-forward validation, partial window splits | `prerequisites/` (9 documents) |
-| **6. Model Training** | Complete | PFP Classifier training (Tier 0-4), model artifacts | `6_model-training/`, `scripts/train_fbp.py` |
+| **6. Model Training** | Complete | PFP Classifier training (Tier 0-4), model artifacts | `6_model-training/`, `scripts/train_pfp.py` |
 | **7. Model Evaluation** | Pending | Evaluation reports, confusion matrices, error analysis | — |
 | **9. Deployment** | Pending | Containerized microservices, CI/CD pipeline | `prerequisites/deployment-architecture.md` |
 | **10. Model Monitoring** | Pending | Drift detection, retraining triggers | — |
@@ -78,7 +78,7 @@ docs/
 | `scripts/feature_engineering_forecaster.py` | Forecaster-specific feature engineering (RFM, STL, lags) | Complete |
 | `scripts/feature_engineering_anomaly.py` | Anomaly-specific per-transaction feature engineering (22 features) | Complete |
 | `scripts/eda.py` | Exploratory data analysis with plots + report | Complete |
-| `scripts/train_fbp.py` | PFP Classifier training (Tier 0-4), temporal fold evaluation | Complete |
+| `scripts/train_pfp.py` | PFP Classifier training (Tier 0-4), temporal fold evaluation | Complete |
 | `scripts/train_forecaster.py` | Forecaster training (RF + PyTorch LSTM/GRU/BiLSTM) | Complete |
 | `scripts/train_anomaly.py` | Anomaly Detector training (IF + OCSVM + AE + Ensemble) | Complete |
 | `scripts/dimension_discovery.py` | Phase 4.5: clustering analysis + overlay feature computation | Complete |
@@ -109,9 +109,9 @@ docs/
    → Computes Financial Trajectory and Financial Margin features
    → Generates: dimension-threshold-candidates.md
 
-5. python scripts/train_fbp.py --input datasets/engineered/ --output models/fbp/
+5. python scripts/train_pfp.py --input datasets/engineered/ --output models/pfp/
    → Trains PFP Classifier model (Tier 0-4)
-   → Generates: models/fbp/ (trained models + evaluation.json + evaluation_report.md)
+   → Generates: models/pfp/ (trained models + evaluation.json + evaluation_report.md)
 
 6. python scripts/feature_engineering_forecaster.py
    → Generates forecaster feature sets (datasets/forecaster/)

@@ -22,7 +22,7 @@ Each module is packaged as a **Docker container**:
 
 | Module | Container | Port | Image |
 |--------|-----------|------|-------|
-| PFP Classifier | fbp-classifier | 8001 | odin/fbp-classifier:v1.0 |
+| PFP Classifier | pfp-classifier | 8001 | odin/pfp-classifier:v1.0 |
 | Forecaster | forecaster | 8002 | odin/forecaster:v1.0 |
 | Anomaly Detector | anomaly-detector | 8003 | odin/anomaly-detector:v1.0 |
 | API Gateway | api-gateway | 8000 | odin/api-gateway:v1.0 |
@@ -60,14 +60,14 @@ Options under consideration:
 # docker-compose.dev.yml
 version: '3.8'
 services:
-  fbp-classifier:
-    build: ./fbp-classifier
+  pfp-classifier:
+    build: ./pfp-classifier
     ports:
       - "8001:8001"
     volumes:
-      - ./models/fbp:/app/models
+      - ./models/pfp:/app/models
     environment:
-      - MODEL_PATH=/app/models/fbp_v1.pkl
+      - MODEL_PATH=/app/models/pfp_v1.pkl
   
   forecaster:
     build: ./forecaster
@@ -92,7 +92,7 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - fbp-classifier
+      - pfp-classifier
       - forecaster
       - anomaly-detector
 ```
@@ -100,24 +100,24 @@ services:
 **Production:** Kubernetes (AWS EKS / GCP GKE)
 
 ```yaml
-# k8s/fbp-deployment.yaml
+# k8s/pfp-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fbp-classifier
+  name: pfp-classifier
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: fbp-classifier
+      app: pfp-classifier
   template:
     metadata:
       labels:
-        app: fbp-classifier
+        app: pfp-classifier
     spec:
       containers:
-      - name: fbp-classifier
-        image: odin/fbp-classifier:v1.0
+      - name: pfp-classifier
+        image: odin/pfp-classifier:v1.0
         ports:
         - containerPort: 8001
         resources:
@@ -198,7 +198,7 @@ Models are stored in cloud object storage:
 
 ```
 s3://odin-models/
-├── fbp/
+├── pfp/
 │   ├── v1.0/
 │   │   ├── model.pkl
 │   │   ├── scaler.pkl
@@ -264,8 +264,8 @@ class ModelLoader:
 ```python
 # Model metadata schema
 {
-    "model_id": "fbp_v1.0.0",
-    "module": "fbp",
+    "model_id": "pfp_v1.0.0",
+    "module": "pfp",
     "version": "1.0.0",
     "created_at": "2026-07-15T10:00:00Z",
     "trained_on": "synthetic_personas_14k",
@@ -459,7 +459,7 @@ from fastapi.security import HTTPBearer
 
 security = HTTPBearer()
 
-@app.get("/api/v1/fbp/classify")
+@app.get("/api/v1/pfp/classify")
 async def classify(request: PFPRequest, token = Security(security)):
     # Verify token
     user = verify_token(token.credentials)
@@ -467,11 +467,11 @@ async def classify(request: PFPRequest, token = Security(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
     
     # Check permissions
-    if not user.has_permission("fbp:classify"):
+    if not user.has_permission("pfp:classify"):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     # Process request
-    return fbp_classifier.classify(request)
+    return pfp_classifier.classify(request)
 ```
 
 ### 9.2 Data Encryption

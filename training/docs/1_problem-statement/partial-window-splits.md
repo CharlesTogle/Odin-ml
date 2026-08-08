@@ -113,7 +113,7 @@ def train_on_partial_windows(personas, window_sizes=[3, 4, 5, 6]):
             features = compute_features(partial, window_size)
             X_train.append(features)
             y_train.append(p.label)
-        model = train_fbp_classifier(X_train, y_train)
+        model = train_pfp_classifier(X_train, y_train)
         X_val, y_val = prepare_validation_set(val_personas, window_size=None)
         results[window_size] = model.score(X_val, y_val)
     return results

@@ -87,7 +87,7 @@ Two additional features — **Financial Behavior** (user preference captured via
 
 ## Next Steps
 
-1. Build model training scripts (`train_fbp.py`, `train_forecaster.py`, `train_anomaly.py`)
+1. Build model training scripts (`train_pfp.py`, `train_forecaster.py`, `train_anomaly.py`)
 2. Set up Google Colab notebook for LSTM training (free GPU access)
 3. Complete SME validation of persona archetypes
 4. Validate synthetic→real generalization with prototype users

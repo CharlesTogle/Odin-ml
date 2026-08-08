@@ -267,7 +267,7 @@ obligatory_total = sum(category_ratios[c] for c in obligatory_categories)
 obligation_ratio = (essential_total + obligatory_total) / total_ratio
 
 # Enforce PFP obligation dimension:
-if 'Obligated' in fbp:
+if 'Obligated' in pfp:
     obligation_ratio = np.random.uniform(0.65, 0.85)  # High obligation
 else:
     obligation_ratio = np.random.uniform(0.30, 0.55)  # Low obligation
@@ -494,10 +494,10 @@ runway_months = balance / avg_monthly_expense if avg_monthly_expense > 0 else 0.
 stability = "Stable" if cv < STABILITY_CV_THRESHOLD else "Variable"
 obligation = "Obligated" if obligation_ratio > OBLIGATION_RATIO_THRESHOLD else "Flexible"
 tolerance = "Tolerant" if runway_months >= TOLERANCE_RUNWAY_MONTHS else "Tight"
-fbp_label = f"{stability}/{obligation}/{tolerance}"
+pfp_label = f"{stability}/{obligation}/{tolerance}"
 
 # Inject as label
-persona.label = fbp_label
+persona.label = pfp_label
 ```
 
 **Rule 20: Threshold Calibration**

@@ -66,7 +66,7 @@ python scripts/eda.py \
 Produces a comprehensive EDA report with static plots covering distributions, correlations, class balance, temporal patterns, anomalies, and data quality. Works with both raw data (`datasets/processed/`) and engineered data (`datasets/engineered/`).
 
 ```bash
-python scripts/train_fbp.py --input datasets/processed/ --output models/fbp
+python scripts/train_pfp.py --input datasets/processed/ --output models/pfp
 python scripts/train_forecaster.py --input datasets/processed/ --output models/forecaster
 python scripts/train_anomaly.py --input datasets/processed/ --output models/anomaly
 ```

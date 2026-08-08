@@ -16,6 +16,8 @@ This document specifies the integration architecture for the three Odin modules:
 2. **Forecaster** — Monthly Spending Prediction
 3. **Anomaly Detector** — Unusual Transaction Detection
 
+> **Note:** The **Budget Optimizer** module is not yet specified. It will be defined in a later version of this document (target v1.1); the Odin-Paper system spec already references it in the deployment and integration architecture.
+
 The integration design follows these principles:
 - **Loose coupling** — Modules communicate via APIs, not shared state
 - **Event-driven** — Modules react to transaction events
@@ -80,7 +82,7 @@ The integration design follows these principles:
 
 ```json
 {
-  "request_id": "fbp_req_001",
+  "request_id": "pfp_req_001",
   "user_id": "user_789",
   "transactions": [
     {
@@ -107,8 +109,8 @@ The integration design follows these principles:
 
 ```json
 {
-  "response_id": "fbp_resp_001",
-  "request_id": "fbp_req_001",
+  "response_id": "pfp_resp_001",
+  "request_id": "pfp_req_001",
   "user_id": "user_789",
   "classification": {
     "label": "Stable/Obligated",
@@ -205,10 +207,10 @@ The integration design follows these principles:
 ### 4.1 PFP Classifier API
 
 ```
-POST /api/v1/fbp/classify
-POST /api/v1/fbp/classify/batch
-GET  /api/v1/fbp/user/{user_id}/history
-GET  /api/v1/fbp/user/{user_id}/latest
+POST /api/v1/pfp/classify
+POST /api/v1/pfp/classify/batch
+GET  /api/v1/pfp/user/{user_id}/history
+GET  /api/v1/pfp/user/{user_id}/latest
 ```
 
 ### 4.2 Forecaster API
@@ -251,7 +253,7 @@ event_bus.publish('transactions', {
 })
 
 # Modules subscribe to events
-fbp_consumer.subscribe('transactions', handle_transaction)
+pfp_consumer.subscribe('transactions', handle_transaction)
 forecast_consumer.subscribe('transactions', handle_transaction)
 anomaly_consumer.subscribe('transactions', handle_transaction)
 ```
@@ -271,7 +273,7 @@ def handle_transaction(event):
     # Reclassify every 3 months or on significant change
     last_classification = get_last_classification(user_id)
     if should_reclassify(last_classification, history):
-        classification = fbp_classifier.classify(history)
+        classification = pfp_classifier.classify(history)
         save_classification(user_id, classification)
         
         # Publish classification event
@@ -339,32 +341,32 @@ When a user requests a full analysis, the gateway aggregates all module outputs:
 ```python
 async def analyze_user(user_id):
     # Run all modules in parallel
-    fbp_task = fbp_client.classify(user_id)
+    pfp_task = pfp_client.classify(user_id)
     forecast_task = forecast_client.predict(user_id)
     anomaly_task = anomaly_client.detect(user_id)
     
-    fbp_result, forecast_result, anomaly_result = await asyncio.gather(
-        fbp_task, forecast_task, anomaly_task
+    pfp_result, forecast_result, anomaly_result = await asyncio.gather(
+        pfp_task, forecast_task, anomaly_task
     )
     
     # Combine results
     return {
         'user_id': user_id,
-        'classification': fbp_result,
+        'classification': pfp_result,
         'forecast': forecast_result,
         'recent_anomalies': anomaly_result,
-        'insights': generate_insights(fbp_result, forecast_result, anomaly_result)
+        'insights': generate_insights(pfp_result, forecast_result, anomaly_result)
     }
 ```
 
 ### 6.2 Insight Generation
 
 ```python
-def generate_insights(fbp, forecast, anomalies):
+def generate_insights(pfp, forecast, anomalies):
     insights = []
     
     # PFP-based insights
-    if fbp['label'] == 'Variable/Obligated':
+    if pfp['label'] == 'Variable/Obligated':
         insights.append({
             'type': 'warning',
             'message': 'High obligation ratio with variable income. Consider building emergency fund.',
@@ -372,7 +374,7 @@ def generate_insights(fbp, forecast, anomalies):
         })
     
     # Forecast-based insights
-    if forecast['next_month_total'] > fbp['current_expenses'] * 1.2:
+    if forecast['next_month_total'] > pfp['current_expenses'] * 1.2:
         insights.append({
             'type': 'warning',
             'message': 'Spending forecast 20% higher than current. Review budget.',
@@ -399,7 +401,7 @@ def generate_insights(fbp, forecast, anomalies):
 ```python
 async def safe_classify(user_id):
     try:
-        result = await fbp_client.classify(user_id)
+        result = await pfp_client.classify(user_id)
         return result
     except PFPServiceError as e:
         # Fallback to rule-based classification
@@ -422,9 +424,9 @@ async def analyze_user_safe(user_id):
     
     # Try each module independently
     try:
-        results['fbp'] = await fbp_client.classify(user_id)
+        results['pfp'] = await pfp_client.classify(user_id)
     except Exception:
-        results['fbp'] = None
+        results['pfp'] = None
     
     try:
         results['forecast'] = await forecast_client.predict(user_id)

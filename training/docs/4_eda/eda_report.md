@@ -96,7 +96,7 @@ Features with |skewness| > 2 may benefit from transformation:
 
 ## 3. Class Balance Analysis
 
-### 3.1 FBP Class Distribution
+### 3.1 PFP Class Distribution
 
 | Class | Train | Val | Test | Overall |
 |-------|-------|-----|------|---------|
@@ -187,7 +187,7 @@ Features with |skewness| > 2 may benefit from transformation:
 | obligation_ratio | category_entropy | 0.828 |
 | essential_ratio | category_entropy | 0.828 |
 
-### 4.4 Correlation with FBP Target
+### 4.4 Correlation with PFP Target
 
 Point-biserial correlation: each class encoded as 1-vs-rest.
 
@@ -252,7 +252,7 @@ Month 1 rows: 9,800 (8.3% of training data)
 
 ![Anomaly Rate by Month](../figures/anomaly_rate_by_month.png)
 
-### 6.2 Anomaly Rate by FBP Class
+### 6.2 Anomaly Rate by PFP Class
 
 ![Anomaly Rate by Class](../figures/anomaly_rate_by_class.png)
 

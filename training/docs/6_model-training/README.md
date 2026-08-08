@@ -100,16 +100,16 @@ Must maintain >75% per-class accuracy across all PFP classes.
 - `datasets/processed/temporal_folds.json` — Temporal fold definitions
 
 ### Output
-- `models/fbp/` — Trained model artifacts
+- `models/pfp/` — Trained model artifacts
   - `tier0_majority.joblib` — Tier 0 model
   - `tier1_rule_based.joblib` — Tier 1 model (thresholds)
   - `tier2_logistic_regression.joblib` — Tier 2 model
   - `tier3_random_forest.joblib` — Tier 3 RF model
   - `tier3_svm.joblib` — Tier 3 SVM model
   - `tier4_xgboost.joblib` — Tier 4 XGB model
-- `models/fbp/evaluation.json` — Cross-fold metrics for all tiers
-- `models/fbp/evaluation_report.md` — Human-readable comparison report
-- `models/fbp/confusion_matrices/` — Confusion matrix plots per fold
+- `models/pfp/evaluation.json` — Cross-fold metrics for all tiers
+- `models/pfp/evaluation_report.md` — Human-readable comparison report
+- `models/pfp/confusion_matrices/` — Confusion matrix plots per fold
 
 ---
 
@@ -117,12 +117,12 @@ Must maintain >75% per-class accuracy across all PFP classes.
 
 ```bash
 # Train all tiers and evaluate
-python scripts/train_fbp.py --input datasets/engineered/ --output models/fbp/
+python scripts/train_pfp.py --input datasets/engineered/ --output models/pfp/
 
 # Train with custom options
-python scripts/train_fbp.py \
+python scripts/train_pfp.py \
   --input datasets/engineered/ \
-  --output models/fbp/ \
+  --output models/pfp/ \
   --temporal-folds datasets/processed/temporal_folds.json \
   --seed 42
 ```

@@ -80,7 +80,7 @@ Split 3: Train [1-6, 8, 10], Test [11]
 The PFP classifier uses a fixed observation window (3 months). Rolling window is most appropriate:
 
 ```python
-def fbp_walk_forward(personas, obs_window=3):
+def pfp_walk_forward(personas, obs_window=3):
     results = []
     
     for persona in personas:
@@ -93,10 +93,10 @@ def fbp_walk_forward(personas, obs_window=3):
             test_month = months[i]
             
             # Compute features from training window
-            features = compute_fbp_features(train_window)
+            features = compute_pfp_features(train_window)
             
             # Get ground truth label for test month
-            label = get_fbp_label(test_month)
+            label = get_pfp_label(test_month)
             
             results.append({
                 'persona_id': persona.id,
