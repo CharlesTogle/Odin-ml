@@ -61,7 +61,7 @@ Step 7: Export
 
 For each split (train, val, test):
 1. Filter summaries to split's persona IDs
-2. Merge with persona labels (`fbp_label`)
+2. Merge with persona labels (`pfp_label`)
 3. Merge with anomaly info (`is_anomalous`, `anomaly_type`)
 4. Rename `persona_id` → `user_id`
 5. Select metadata + raw columns only
@@ -72,7 +72,7 @@ For each split (train, val, test):
 |--------|------|-------------|
 | `user_id` | str | Persona identifier |
 | `month` | int | Month number (1-12) |
-| `fbp_label` | str | Personal Financial Profile class |
+| `pfp_label` | str | Personal Financial Profile class |
 | `is_anomalous` | bool | Whether this month contains anomalous transactions |
 | `anomaly_type` | str | Type of anomaly |
 
@@ -92,7 +92,7 @@ For each split (train, val, test):
 | `debt_payment` | float | Cumulative debt payment |
 | `transaction_count` | int | Total transaction count |
 
-Total output schema: `user_id, month, fbp_label, is_anomalous, anomaly_type, 11 raw columns` = 16 columns.
+Total output schema: `user_id, month, pfp_label, is_anomalous, anomaly_type, 11 raw columns` = 16 columns.
 
 > Run `scripts/feature_engineering.py` next to compute derived features (income stability, ratios, trends, etc.)
 

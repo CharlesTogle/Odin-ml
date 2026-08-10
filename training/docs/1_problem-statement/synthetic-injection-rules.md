@@ -719,7 +719,7 @@ FIES NCR CSV
     'category': str,          # Expense category
     'amount': float,          # Transaction amount (PHP)
     'type': str,              # 'expense' or 'income'
-    'fbp_label': str,         # PFP classification
+    'pfp_label': str,         # PFP classification
     'income_stability_cv': float,  # CV for income stability
     'obligation_ratio': float,     # Obligation weight score
     'anomaly_type': str|None,      # 'monetary_spike', etc. or None
@@ -730,7 +730,7 @@ FIES NCR CSV
 {
     'user_id': str,           # UUID
     'archetype': str,         # Archetype name
-    'fbp_label': str,         # PFP classification
+    'pfp_label': str,         # PFP classification
     'income_stability_cv': float,
     'obligation_ratio': float,
     'monthly_income': float,  # Average monthly income

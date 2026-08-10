@@ -84,7 +84,7 @@ RAW_COLUMNS = [
 METADATA_COLUMNS = [
     "user_id",
     "month",
-    "fbp_label",
+    "pfp_label",
     "runway_months",
     "financial_tolerance",
     "is_anomalous",
@@ -338,7 +338,7 @@ def compute_derived_features(
         row = {
             "user_id": persona_id,
             "month": month,
-            "fbp_label": persona_row.get("fbp_label", ""),
+            "pfp_label": persona_row.get("pfp_label", ""),
             "is_anomalous": anomaly["is_anomalous"],
             "anomaly_type": anomaly["anomaly_type"],
             "income_stability_cv": round(income_cv, 4),
@@ -528,7 +528,7 @@ def select_features(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
     test_df: pd.DataFrame,
-    target_col: str = "fbp_label",
+    target_col: str = "pfp_label",
     feature_cols: Optional[list[str]] = None,
     method: str = "mutual_info",
     k: int = 15,
@@ -700,7 +700,7 @@ def load_monthly_summaries(input_dir: str) -> pd.DataFrame:
     df = pd.read_parquet(path)
     required = ["persona_id", "month", "year", "total_income", "total_expenses",
                  "transaction_count", "income_stability_cv", "obligation_ratio",
-                 "runway_months", "financial_tolerance", "fbp_label"]
+                 "runway_months", "financial_tolerance", "pfp_label"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise FeatureEngineeringError(f"monthly_summaries.parquet missing columns: {missing}")
@@ -712,7 +712,7 @@ def load_personas(input_dir: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"personas.parquet not found at {path}")
     df = pd.read_parquet(path)
-    required = ["persona_id", "fbp_label"]
+    required = ["persona_id", "pfp_label"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise FeatureEngineeringError(f"personas.parquet missing columns: {missing}")
@@ -951,7 +951,7 @@ def run_feature_engineering(
             split_dfs["train"],
             split_dfs["val"],
             split_dfs["test"],
-            target_col="fbp_label",
+            target_col="pfp_label",
             feature_cols=all_engineered,
             method=config.select_method,
             k=config.select_k,

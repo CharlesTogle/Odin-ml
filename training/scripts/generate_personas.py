@@ -278,7 +278,7 @@ class SyntheticPersona:
     age: int
     gender: str
     education: str
-    fbp_label: str
+    pfp_label: str
     # Expense breakdown
     food_expense: float
     housing_expense: float
@@ -593,7 +593,7 @@ def generate_persona(
     emergency_fund = round(savings_amount * rng.uniform(0.2, 0.8) / 100) * 100
 
     # 3-dimension PFP label
-    fbp_label = _compute_pfp_label(income_cv, obligation_ratio, runway_months)
+    pfp_label = _compute_pfp_label(income_cv, obligation_ratio, runway_months)
 
     persona_id = f"persona_{archetype.archetype_id}_{persona_index:04d}"
 
@@ -611,7 +611,7 @@ def generate_persona(
         age=age,
         gender=gender,
         education=education,
-        fbp_label=fbp_label,
+        pfp_label=pfp_label,
         food_expense=food_expense,
         housing_expense=housing_expense,
         transport_expense=transport_expense,
@@ -685,7 +685,7 @@ def validate_personas(personas: list[SyntheticPersona]) -> dict:
     validation = {
         "total_personas": len(personas),
         "archetype_counts": df["archetype_id"].value_counts().to_dict(),
-        "pfp_label_counts": df["fbp_label"].value_counts().to_dict(),
+        "pfp_label_counts": df["pfp_label"].value_counts().to_dict(),
         "income_stats": {
             "mean": float(df["monthly_income"].mean()),
             "median": float(df["monthly_income"].median()),
@@ -736,8 +736,8 @@ def export_personas(personas: list[SyntheticPersona], output_dir: str) -> None:
             "avg_income_cv": float(np.mean([p.income_cv for p in archetype_personas])),
             "avg_runway_months": float(np.mean([p.runway_months for p in archetype_personas])),
             "pfp_labels": {
-                label: sum(1 for p in archetype_personas if p.fbp_label == label)
-                for label in set(p.fbp_label for p in archetype_personas)
+                label: sum(1 for p in archetype_personas if p.pfp_label == label)
+                for label in set(p.pfp_label for p in archetype_personas)
             },
         }
 

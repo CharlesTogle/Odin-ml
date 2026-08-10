@@ -348,7 +348,7 @@ def generate_summary_report(
 
     # Compute PFP label distribution
     for persona in personas:
-        label = persona.fbp_label if isinstance(persona, SyntheticPersona) else persona.get("fbp_label", "Unknown")
+        label = persona.pfp_label if isinstance(persona, SyntheticPersona) else persona.get("pfp_label", "Unknown")
         report["pfp_label_distribution"][label] = (
             report["pfp_label_distribution"].get(label, 0) + 1
         )

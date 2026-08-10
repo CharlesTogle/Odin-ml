@@ -29,7 +29,7 @@ scripts/feature_engineering.py
 │
 ├── Step 2: Load Synthesis Data (for incremental computation)
 │   ├── monthly_summaries.parquet (per-persona-month raw data)
-│   ├── personas.parquet (fbp_label lookup)
+│   ├── personas.parquet (pfp_label lookup)
 │   └── transactions.parquet (anomaly info)
 │
 ├── Step 3: Compute Derived Features
@@ -197,7 +197,7 @@ Works without synthesis data. Computes features directly from each row's cumulat
 ### `train.parquet`, `val.parquet`, `test.parquet`
 
 Feature matrices with metadata, raw, and engineered columns. Schema includes:
-- `user_id`, `month`, `fbp_label`, `is_anomalous`, `anomaly_type`
+- `user_id`, `month`, `pfp_label`, `is_anomalous`, `anomaly_type`
 - `total_income`, `total_expenses`, `food_expense`, ... (raw)
 - All selected engineered features (derived + cyclical + interaction)
 

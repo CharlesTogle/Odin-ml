@@ -82,7 +82,7 @@ class MonthlySummary:
     obligation_ratio: float
     runway_months: float
     financial_tolerance: str
-    fbp_label: str
+    pfp_label: str
     is_anomalous: bool
 
 
@@ -503,7 +503,7 @@ def compute_monthly_summary(
     financial_tolerance = "Tolerant" if runway_months >= TOLERANCE_RUNWAY_MONTHS else "At-Risk"
 
     # 3-dimension PFP label
-    fbp_label = _compute_pfp_label(income_cv, obligation_ratio, runway_months)
+    pfp_label = _compute_pfp_label(income_cv, obligation_ratio, runway_months)
 
     # Check for anomalies
     is_anomalous = any(t.is_anomalous for t in transactions)
@@ -528,7 +528,7 @@ def compute_monthly_summary(
         obligation_ratio=round(obligation_ratio, 3),
         runway_months=round(runway_months, 2),
         financial_tolerance=financial_tolerance,
-        fbp_label=fbp_label,
+        pfp_label=pfp_label,
         is_anomalous=is_anomalous,
     )
 
@@ -631,7 +631,7 @@ def validate_transactions(
             "mean": float(df["runway_months"].mean()),
             "std": float(df["runway_months"].std()),
         },
-        "fbp_label_counts": df["fbp_label"].value_counts().to_dict(),
+        "pfp_label_counts": df["pfp_label"].value_counts().to_dict(),
     }
 
     return validation

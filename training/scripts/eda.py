@@ -39,7 +39,7 @@ RAW_FEATURES = [
     "savings", "debt_payment", "transaction_count",
 ]
 
-META_COLUMNS = ["user_id", "month", "fbp_label", "is_anomalous", "anomaly_type"]
+META_COLUMNS = ["user_id", "month", "pfp_label", "is_anomalous", "anomaly_type"]
 
 PFP_CLASSES = [
     "Stable/Flexible", "Stable/Obligated",
@@ -248,7 +248,7 @@ def section_class_balance(splits: dict[str, pd.DataFrame], figdir: str) -> str:
         for name in ["train", "val", "test"]:
             df = splits.get(name)
             if df is not None:
-                counts.append(int((df["fbp_label"] == cls).sum()))
+                counts.append(int((df["pfp_label"] == cls).sum()))
             else:
                 counts.append(0)
         overall = sum(counts)
@@ -258,7 +258,7 @@ def section_class_balance(splits: dict[str, pd.DataFrame], figdir: str) -> str:
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     for idx, (name, df) in enumerate(splits.items()):
         ax = axes[idx]
-        counts = df["fbp_label"].value_counts().reindex(PFP_CLASSES, fill_value=0)
+        counts = df["pfp_label"].value_counts().reindex(PFP_CLASSES, fill_value=0)
         bars = ax.bar(range(len(PFP_CLASSES)), counts.values,
                       color=[PFP_PALETTE[c] for c in PFP_CLASSES])
         ax.set_xticks(range(len(PFP_CLASSES)))
@@ -279,7 +279,7 @@ def section_class_balance(splits: dict[str, pd.DataFrame], figdir: str) -> str:
         row = {"Class": cls}
         for name, df in splits.items():
             total = len(df)
-            count = (df["fbp_label"] == cls).sum()
+            count = (df["pfp_label"] == cls).sum()
             row[name] = f"{count / total * 100:.1f}%"
         rows.append(row)
     lines.append("| Class | Train | Val | Test |")
@@ -292,7 +292,7 @@ def section_class_balance(splits: dict[str, pd.DataFrame], figdir: str) -> str:
     x = np.arange(len(PFP_CLASSES))
     width = 0.25
     for i, (name, df) in enumerate(splits.items()):
-        props = [(df["fbp_label"] == cls).sum() / len(df) * 100 for cls in PFP_CLASSES]
+        props = [(df["pfp_label"] == cls).sum() / len(df) * 100 for cls in PFP_CLASSES]
         ax.bar(x + i * width, props, width, label=name.capitalize(), alpha=0.85)
     ax.set_xticks(x + width)
     ax.set_xticklabels([c.replace("/", "\n") for c in PFP_CLASSES], fontsize=9)
@@ -319,7 +319,7 @@ def section_class_balance(splits: dict[str, pd.DataFrame], figdir: str) -> str:
             data = []
             labels = []
             for cls in PFP_CLASSES:
-                vals = train.loc[train["fbp_label"] == cls, feat].dropna()
+                vals = train.loc[train["pfp_label"] == cls, feat].dropna()
                 data.append(vals)
                 labels.append(cls.replace("/", "\n"))
             bp = ax.boxplot(data, tick_labels=labels, patch_artist=True)
@@ -405,7 +405,7 @@ def section_correlations(splits: dict[str, pd.DataFrame], figdir: str) -> str:
         for feat in avail_eng:
             corrs = []
             for cls in PFP_CLASSES:
-                binary = (train["fbp_label"] == cls).astype(int)
+                binary = (train["pfp_label"] == cls).astype(int)
                 r = train[feat].corr(binary, method="pearson")
                 corrs.append(f"{r:.3f}")
             lines.append(f"| {feat} | {' | '.join(corrs)} |")
@@ -415,7 +415,7 @@ def section_correlations(splits: dict[str, pd.DataFrame], figdir: str) -> str:
         x = np.arange(len(avail_eng))
         width = 0.2
         for i, cls in enumerate(PFP_CLASSES):
-            binary = (train["fbp_label"] == cls).astype(int)
+            binary = (train["pfp_label"] == cls).astype(int)
             corrs = [train[feat].corr(binary, method="pearson") for feat in avail_eng]
             ax.bar(x + i * width, corrs, width, label=cls.replace("/", "/"), alpha=0.8)
         ax.set_xticks(x + width * 1.5)
@@ -498,11 +498,11 @@ def section_temporal(splits: dict[str, pd.DataFrame], figdir: str) -> str:
     lines.append("")
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    monthly_income = train.groupby(["month", "fbp_label"])["total_income"].mean().reset_index()
-    monthly_expense = train.groupby(["month", "fbp_label"])["total_expenses"].mean().reset_index()
+    monthly_income = train.groupby(["month", "pfp_label"])["total_income"].mean().reset_index()
+    monthly_expense = train.groupby(["month", "pfp_label"])["total_expenses"].mean().reset_index()
     for cls in PFP_CLASSES:
-        inc = monthly_income[monthly_income["fbp_label"] == cls]
-        exp = monthly_expense[monthly_expense["fbp_label"] == cls]
+        inc = monthly_income[monthly_income["pfp_label"] == cls]
+        exp = monthly_expense[monthly_expense["pfp_label"] == cls]
         ax.plot(inc["month"], inc["total_income"], marker="o", linewidth=2,
                 color=PFP_PALETTE[cls], label=f"{cls} (income)")
         ax.plot(exp["month"], exp["total_expenses"], marker="s", linewidth=2,
@@ -552,7 +552,7 @@ def section_anomalies(splits: dict[str, pd.DataFrame], figdir: str) -> str:
     lines.append("![Anomaly Rate by Month](anomaly_rate_by_month.png)\n")
 
     lines.append("### 6.2 Anomaly Rate by PFP Class\n")
-    class_anom = train.groupby("fbp_label").agg(
+    class_anom = train.groupby("pfp_label").agg(
         total=("is_anomalous", "count"),
         anomalous=("is_anomalous", "sum"),
     ).reset_index()
@@ -560,15 +560,15 @@ def section_anomalies(splits: dict[str, pd.DataFrame], figdir: str) -> str:
 
     fig, ax = plt.subplots(figsize=(8, 5))
     bars = ax.bar(range(len(PFP_CLASSES)),
-                  [class_anom.loc[class_anom["fbp_label"] == c, "rate"].values[0]
-                   if c in class_anom["fbp_label"].values else 0 for c in PFP_CLASSES],
+                  [class_anom.loc[class_anom["pfp_label"] == c, "rate"].values[0]
+                   if c in class_anom["pfp_label"].values else 0 for c in PFP_CLASSES],
                   color=[PFP_PALETTE[c] for c in PFP_CLASSES])
     ax.set_xticks(range(len(PFP_CLASSES)))
     ax.set_xticklabels([c.replace("/", "\n") for c in PFP_CLASSES])
     ax.set_ylabel("Anomaly Rate (%)")
     ax.set_title("Anomaly Rate by PFP Class", fontsize=13)
-    for bar, val in zip(bars, [class_anom.loc[class_anom["fbp_label"] == c, "rate"].values[0]
-                                if c in class_anom["fbp_label"].values else 0 for c in PFP_CLASSES]):
+    for bar, val in zip(bars, [class_anom.loc[class_anom["pfp_label"] == c, "rate"].values[0]
+                                if c in class_anom["pfp_label"].values else 0 for c in PFP_CLASSES]):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1,
                 f"{val:.1f}%", ha="center", va="bottom", fontsize=9)
     fig.tight_layout()

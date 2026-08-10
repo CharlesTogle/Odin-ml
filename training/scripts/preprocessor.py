@@ -81,7 +81,7 @@ RAW_COLUMNS = [
 METADATA_COLUMNS = [
     "user_id",
     "month",
-    "fbp_label",
+    "pfp_label",
     "runway_months",
     "financial_tolerance",
     "is_anomalous",
@@ -96,7 +96,7 @@ def load_monthly_summaries(input_dir: str) -> pd.DataFrame:
     df = pd.read_parquet(path)
     required = ["persona_id", "month", "year", "total_income", "total_expenses",
                  "transaction_count", "income_stability_cv", "obligation_ratio",
-                 "runway_months", "financial_tolerance", "fbp_label"]
+                 "runway_months", "financial_tolerance", "pfp_label"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise DataValidationError(f"monthly_summaries.parquet missing columns: {missing}")
@@ -108,7 +108,7 @@ def load_personas(input_dir: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"personas.parquet not found at {path}")
     df = pd.read_parquet(path)
-    required = ["persona_id", "fbp_label"]
+    required = ["persona_id", "pfp_label"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise DataValidationError(f"personas.parquet missing columns: {missing}")
@@ -167,7 +167,7 @@ def split_personas(
 ) -> dict:
     assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-6, "Ratios must sum to 1.0"
 
-    labels = personas["fbp_label"].values
+    labels = personas["pfp_label"].values
     persona_ids = personas["persona_id"].values
 
     strat = StratifiedShuffleSplit(n_splits=1, test_size=(val_ratio + test_ratio), random_state=seed)
@@ -455,7 +455,7 @@ def run_preprocessing(
     for split_name, persona_ids in split_result["splits"].items():
         print(f"  Building {split_name} ({len(persona_ids)} personas)...")
         mask = summaries["persona_id"].isin(persona_ids)
-        persona_merge_cols = [c for c in ["persona_id", "fbp_label", "runway_months", "financial_tolerance"]
+        persona_merge_cols = [c for c in ["persona_id", "pfp_label", "runway_months", "financial_tolerance"]
                               if c not in summaries.columns or c == "persona_id"]
         split_df = summaries[mask].merge(
             personas_df[persona_merge_cols],

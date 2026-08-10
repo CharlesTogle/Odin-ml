@@ -17,7 +17,7 @@ Evaluation:
   - Pre-registered margin: 2 points Macro-F1 (Tier 1 vs best learned)
 
 Usage:
-    python scripts/train_fbp.py --input datasets/engineered/ --output models/fbp/
+    python scripts/train_pfp.py --input datasets/engineered/ --output models/pfp/
 """
 
 import argparse
@@ -91,7 +91,7 @@ PFP_PALETTE = {
 
 PRE_REGISTERED_MARGIN = 0.02  # 2 points of Macro-F1
 
-META_COLUMNS = ["user_id", "month", "fbp_label", "runway_months", "financial_tolerance",
+META_COLUMNS = ["user_id", "month", "pfp_label", "runway_months", "financial_tolerance",
                 "is_anomalous", "anomaly_type"]
 
 RAW_COLUMNS = [
@@ -179,7 +179,7 @@ def aggregate_to_personas(
     Uses vectorized pandas groupby for performance.
     Returns:
         personas_df: DataFrame with one row per persona (aggregated features + label)
-        label_map: mapping from persona_id to fbp_label (majority vote)
+        label_map: mapping from persona_id to pfp_label (majority vote)
     """
     agg_cols = [c for c in feature_cols if c in df.columns]
 
@@ -187,12 +187,12 @@ def aggregate_to_personas(
     personas_df = df.groupby("user_id")[agg_cols].mean().reset_index()
 
     # Majority vote for label
-    label_counts = df.groupby(["user_id", "fbp_label"]).size().reset_index(name="count")
+    label_counts = df.groupby(["user_id", "pfp_label"]).size().reset_index(name="count")
     idx = label_counts.groupby("user_id")["count"].idxmax()
-    labels = label_counts.loc[idx, ["user_id", "fbp_label"]]
+    labels = label_counts.loc[idx, ["user_id", "pfp_label"]]
     personas_df = personas_df.merge(labels, on="user_id", how="left")
 
-    label_map = dict(zip(personas_df["user_id"], personas_df["fbp_label"]))
+    label_map = dict(zip(personas_df["user_id"], personas_df["pfp_label"]))
     return personas_df, label_map
 
 
@@ -218,7 +218,7 @@ def prepare_feature_matrix(
     """
     available = [c for c in feature_cols if c in personas_df.columns]
     X = personas_df[available].values
-    y = personas_df["fbp_label"].values
+    y = personas_df["pfp_label"].values
     return X, y, available
 
 
@@ -513,7 +513,7 @@ def plot_confusion_matrix(
 
 def run_training(
     input_dir: str = "datasets/engineered/",
-    output_dir: str = "models/fbp/",
+    output_dir: str = "models/pfp/",
     temporal_folds_path: Optional[str] = None,
     seed: int = 42,
 ) -> TrainingReport:
@@ -923,8 +923,8 @@ def main():
         help="Input directory with engineered data (default: datasets/engineered/)"
     )
     parser.add_argument(
-        "--output", default="models/fbp/",
-        help="Output directory for trained models (default: models/fbp/)"
+        "--output", default="models/pfp/",
+        help="Output directory for trained models (default: models/pfp/)"
     )
     parser.add_argument(
         "--temporal-folds", default=None,
