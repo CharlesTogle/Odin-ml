@@ -1,8 +1,8 @@
 # Deployment Architecture
 
-**Document Version:** v1.0
-**Author(s):** Guevarra
-**Date:** 2026-07-17
+**Document Version:** v1.1
+**Author(s):** Guevarra; Group 4, III-DCSAD
+**Date:** 2026-08-10
 **Status:** Draft
 **Purpose:** Define the deployment architecture for Odin ML modules
 
@@ -10,7 +10,7 @@
 
 ## 1. Overview
 
-This document specifies the deployment architecture for the three Odin ML modules. The design follows the **separate containers** recommendation from the architecture discussion, with each module running as an independent microservice.
+This document specifies the deployment architecture for the four Odin ML modules. The design follows the **separate containers** recommendation from the architecture discussion, with each module running as an independent microservice.
 
 ---
 
@@ -25,8 +25,11 @@ Each module is packaged as a **Docker container**:
 | PFP Classifier | pfp-classifier | 8001 | odin/pfp-classifier:v1.0 |
 | Forecaster | forecaster | 8002 | odin/forecaster:v1.0 |
 | Anomaly Detector | anomaly-detector | 8003 | odin/anomaly-detector:v1.0 |
+| Budget Optimizer | budget-optimizer | 8005 | odin/budget-optimizer:v1.0 |
 | API Gateway | api-gateway | 8000 | odin/api-gateway:v1.0 |
 | Transaction Service | transaction-service | 8004 | odin/transaction-service:v1.0 |
+
+> Ports match the Odin-Paper system spec v0.3.0 deployment diagram (PFM 8001, forecaster 8002, anomaly 8003, gateway 8000, transaction 8004, budget optimizer 8005).
 
 ### 2.2 Why Separate Containers
 
@@ -35,7 +38,7 @@ Each module is packaged as a **Docker container**:
 | Independent scaling | Scale anomaly detector (high QPS) separately from forecaster (CPU-intensive) |
 | Independent deployment | Deploy PFP changes without restarting forecaster |
 | Fault isolation | Anomaly detector crash doesn't affect PFP classification |
-| Resource optimization | Give more memory to LSTM forecaster, more CPU to XGBoost PFP |
+| Resource optimization | Give more memory to LSTM forecaster, more CPU to Random Forest PFP |
 | Team specialization | Different developers can own different modules |
 
 ---
@@ -87,6 +90,15 @@ services:
     environment:
       - MODEL_PATH=/app/models/iforest_v1.pkl
   
+  budget-optimizer:
+    build: ./budget-optimizer
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./models/budget:/app/models
+    environment:
+      - MODEL_PATH=/app/models/budget_v1.0.json
+  
   api-gateway:
     build: ./api-gateway
     ports:
@@ -95,6 +107,7 @@ services:
       - pfp-classifier
       - forecaster
       - anomaly-detector
+      - budget-optimizer
 ```
 
 **Production:** Kubernetes (AWS EKS / GCP GKE)
@@ -152,10 +165,11 @@ spec:
 | PFP Classifier | 500m | 1 Gi | 1 Gi | None |
 | Forecaster | 1000m | 2 Gi | 2 Gi | Optional (LSTM) |
 | Anomaly Detector | 500m | 1 Gi | 1 Gi | None |
+| Budget Optimizer | 500m | 1 Gi | 1 Gi | None |
 | API Gateway | 250m | 512 Mi | 512 Mi | None |
 | Transaction Service | 500m | 1 Gi | 5 Gi | None |
 
-**Total (without GPU):** 2.75 CPU, 5.5 Gi RAM, 9.5 Gi Disk
+**Total (without GPU):** 3.25 CPU, 6.5 Gi RAM, 11.5 Gi Disk
 **Total (with GPU):** Add 1 GPU for LSTM training
 
 ### 4.2 Scaling Rules
@@ -194,94 +208,105 @@ spec:
 
 ### 5.1 Model Storage
 
-Models are stored in cloud object storage:
+Models are trained locally into `training/models/` (gitignored, regenerable from `training/scripts/`) and published to cloud object storage:
 
 ```
-s3://odin-models/
+<object-store>/odin-models/
 ├── pfp/
-│   ├── v1.0/
-│   │   ├── model.pkl
-│   │   ├── scaler.pkl
+│   ├── v1.0.0/
+│   │   ├── model.joblib
+│   │   ├── feature_columns.json
 │   │   ├── thresholds.json
 │   │   └── metadata.json
-│   └── latest -> v1.0
+│   └── latest -> v1.0.0
 ├── forecaster/
-│   ├── v1.0/
-│   │   ├── model.pt
-│   │   ├── tokenizer.json
+│   ├── v1.0.0/
+│   │   ├── model.joblib
+│   │   ├── feature_columns.json
 │   │   └── metadata.json
-│   └── latest -> v1.0
-└── anomaly/
-    ├── v1.0/
-    │   ├── model.pkl
-    │   ├── baseline.json
+│   └── latest -> v1.0.0
+├── anomaly/
+│   ├── v1.0.0/
+│   │   ├── model.joblib
+│   │   ├── baseline.json
+│   │   └── metadata.json
+│   └── latest -> v1.0.0
+└── budget/
+    ├── v1.0.0/
+    │   ├── constraints.json
     │   └── metadata.json
-    └── latest -> v1.0
+    └── latest -> v1.0.0
 ```
 
 ### 5.2 Model Loading
 
+Models are loaded from the local cache first, falling back to object storage (S3-compatible / GCS / Azure Blob). Pickle-free artifact loading keeps the runtime dependency surface minimal:
+
 ```python
-import boto3
-import pickle
+import json
+import joblib
 from pathlib import Path
 
 class ModelLoader:
-    def __init__(self, bucket='odin-models'):
-        self.s3 = boto3.client('s3')
-        self.bucket = bucket
-        self.cache_dir = Path('/tmp/models')
-        self.cache_dir.mkdir(exist_ok=True)
-    
-    def load(self, module, version='latest'):
-        cache_path = self.cache_dir / module / version
-        if cache_path.exists():
-            return self._load_from_cache(cache_path)
-        
-        # Download from S3
-        self._download(module, version)
-        return self._load_from_cache(cache_path)
-    
-    def _download(self, module, version):
-        prefix = f'{module}/{version}/'
-        objects = self.s3.list_objects(Bucket=self.bucket, Prefix=prefix)
-        
-        for obj in objects.get('Contents', []):
-            local_path = self.cache_dir / obj['Key']
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            self.s3.download_file(self.bucket, obj['Key'], str(local_path))
-    
-    def _load_from_cache(self, path):
-        if path.suffix == '.pkl':
-            return pickle.loads(path.read_bytes())
-        elif path.suffix == '.pt':
-            import torch
-            return torch.load(path)
+    """Loads model artifacts by module + version.
+
+    Artifacts live in `training/models/{module}/{version}/` locally; the
+    deployment environment mounts the same layout into `/app/models/`.
+    """
+
+    def __init__(self, models_dir: Path = Path('/app/models')):
+        self.models_dir = models_dir
+
+    def load(self, module: str, version: str = 'latest'):
+        root = self.models_dir / module / version
+        if not root.exists():
+            # resolve the `latest` symlink or fail fast
+            root = self.models_dir / module / 'latest'
+        return self._load_from_cache(root)
+
+    def load_joblib(self, module: str, name: str, version: str = 'latest'):
+        root = self._resolve(module, version)
+        return joblib.load(root / name)
+
+    def load_json(self, module: str, name: str, version: str = 'latest'):
+        root = self._resolve(module, version)
+        return json.loads((root / name).read_text())
+
+    def _resolve(self, module: str, version: str) -> Path:
+        root = self.models_dir / module / version
+        if not root.exists():
+            root = self.models_dir / module / 'latest'
+        if not root.exists():
+            raise FileNotFoundError(f'model artifacts missing: {module}/{version}')
+        return root
 ```
 
-### 5.3 Model Versioning
+### 5.3 Artifact Versioning
 
-```python
-# Model metadata schema
+Every published artifact carries a metadata file that pins the training data, metrics, and dependency versions:
+
+```json
 {
-    "model_id": "pfp_v1.0.0",
+    "model_id": "pfp_v1.3.0",
     "module": "pfp",
-    "version": "1.0.0",
-    "created_at": "2026-07-15T10:00:00Z",
-    "trained_on": "synthetic_personas_14k",
+    "version": "1.3.0",
+    "created_at": "2026-08-10T10:00:00Z",
+    "trained_on": "synthetic_personas_12k",
+    "training_data_hash": "sha256:4f9c2d1e8b6a3f7c9e0d1b2a3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
     "metrics": {
-        "accuracy": 0.87,
-        "macro_f1": 0.85,
-        "cohen_kappa": 0.82
+        "accuracy": 0.4857,
+        "macro_f1": 0.4759
     },
-    "features": ["income_cv", "obligation_ratio", ...],
+    "features": ["income_stability_cv", "obligation_ratio", "savings_rate", ...],
     "dependencies": {
-        "python": "3.10",
-        "sklearn": "1.3.0",
-        "xgboost": "2.0.0"
+        "python": "3.13.14",
+        "sklearn": "1.8.0",
+        "pandas": "3.0.3"
     }
 }
 ```
+
+> **Consistency rule:** a model may only serve predictions against the exact `feature_columns.json` it was trained on. The serving API loads `feature_columns.json` alongside the model and rejects requests whose feature set does not match.
 
 ---
 
@@ -348,6 +373,18 @@ class StructuredLogger:
 | Model Stale | No model update in 30 days | Trigger retraining |
 | Memory High | > 80% utilization | Scale up |
 | Disk Full | > 90% disk usage | Clean cache |
+| Drift Detected | PSI or ADWIN/CUSUM flag | Flag retraining |
+
+### 6.4 Drift Monitoring
+
+Each module monitors drift on its input distribution and prediction distribution:
+
+| Method | Use |
+|--------|-----|
+| **PSI (Population Stability Index)** | Categorical/feature-distribution shift (e.g., PFP label mix, spend ratios) |
+| **ADWIN / CUSUM** | Online detection of gradual or abrupt performance drift on live prediction outcomes |
+
+Drift checks run on a rolling window (e.g., 30 days of live predictions vs. the training-time baseline distribution) and publish a `drift_alert` event when the metric crosses its pre-registered threshold. A drift alert does **not** auto-deploy; it flags the artifact for evaluation in the CI/CD pipeline.
 
 ---
 
@@ -369,7 +406,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.13.14'
     
     - name: Install dependencies
       run: pip install -r requirements.txt
@@ -515,3 +552,4 @@ async def classify(request: PFPRequest, token = Security(security)):
 ---
 
 *Document created: 2026-07-17*
+*Updated: 2026-08-10 (v1.1 — added Budget Optimizer container, artifact versioning, drift monitoring)*

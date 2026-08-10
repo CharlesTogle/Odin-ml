@@ -2,7 +2,7 @@
 
 ## What This Phase Is
 
-This phase defines the ML problem space for Odin's three intelligent modules. It produces the Model Design Document (MDD) — the complete specification for what each model does, how it's trained, and how it integrates with the app.
+This phase defines the ML problem space for Odin's four intelligent modules. It produces the Model Design Document (MDD) — the complete specification for what each model does, how it's trained, and how it integrates with the app.
 
 ## Inputs
 
@@ -17,17 +17,18 @@ This phase defines the ML problem space for Odin's three intelligent modules. It
 
 ### 1. Problem Definition
 
-Three models are designed to work together:
+Four models are designed to work together:
 
 | Model | Type | Classes/Targets | Purpose |
 |-------|------|-----------------|---------|
 | **PFP Classifier** | Multi-class classification | 8 (Stable-Flexible-Tolerant, Stable-Flexible-Tight, Stable-Obligated-Tolerant, Stable-Obligated-Tight, Variable-Flexible-Tolerant, Variable-Flexible-Tight, Variable-Obligated-Tolerant, Variable-Obligated-Tight) | Assign personal financial profile |
 | **Forecaster** | Time-series regression | Continuous (monthly expenses) | Predict future income and expense trends |
 | **Anomaly Detector** | Anomaly detection | Binary (normal/anomalous) | Detect unusual spending patterns |
+| **Budget Optimizer** | Constraint optimization | Continuous (category allocations) | Recommend budget allocations within constraints |
 
 ### 2. Semi-Supervised Approach
 
-All three models follow a semi-supervised design:
+The three learned models (PFP, Forecaster, Anomaly Detector) follow a semi-supervised design; the Budget Optimizer is a constraint-optimization module (LP) that consumes their outputs rather than learning from data:
 
 - **Training**: Synthetic personas generated from FIES NCR aggregates (12 archetypes × 1,000 personas = 12,000 total)
 - **Validation**: SME review of archetype list and classification thresholds
@@ -40,7 +41,7 @@ Key architectural choices documented in MDD:
 - **8-class PFP**: Derived from three binary dimensions (income stability × obligation weight × financial tolerance)
 - **1-month embargo gap**: Prevents temporal leakage between train/test splits
 - **Expanding window WFV**: Rolling-origin evaluation across months 8-12
-- **3 classification modes**: STANDARD (transactions), QUESTIONNAIRE (self-reported), ENSEMBLE (both)
+- **2 classification modes**: STANDARD (transactions), QUESTIONNAIRE (self-reported). An earlier `ENSEMBLE` mode (both inputs) was dropped in v1.4 — no such path exists in the system spec or the training pipeline.
 
 ## Outputs
 

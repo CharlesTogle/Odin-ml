@@ -1,10 +1,12 @@
 # Model Design Document - PFP Classifier
-**Document Version:** v1.3  
+**Document Version:** v1.4  
 **Module Name:** Personal Financial Profile Classifier  
 **Author(s):** Guevarra 
-**Date:** 2026-07-26  
+**Date:** 2026-08-10  
 **Status:** Draft
 **Companion Documents:** `bsp-fies-crosswalk.md`, `synthetic-injection-rules.md`
+
+> **v1.4 change:** Confirms the 8-class output contract (prediction + income stability / obligation weight / financial tolerance scores + confidence + `status`) and the two classification modes `STANDARD` / `QUESTIONNAIRE`. No `ENSEMBLE` mode exists in the system spec or the training pipeline.
 
 ---
 
@@ -369,12 +371,14 @@
 ---
 
 # Model Design Document - Forecaster
-**Document Version:** v2.3  
+**Document Version:** v2.4  
 **Module Name:** Forecaster  
 **Author(s):** Guevarra
-**Date:** 2026-07-26  
+**Date:** 2026-08-10  
 **Status:** Draft
 **Companion Documents:** `bsp-fies-crosswalk.md`, `synthetic-injection-rules.md`
+
+> **v2.4 change:** Evaluation metrics aligned with Odin-Paper chapter-1 §4.3 — primary metrics are now MAE, SMAPE, MDA, RMSE; MAPE demoted to supplementary. KPI thresholds updated accordingly.
 
 ---
 
@@ -433,13 +437,16 @@
 
 - **Core Problem:** Multi-step time series forecasting of expense amounts at hierarchical levels (total, category group, category), for three fixed horizons (weekly, semi-monthly, monthly), with heteroscedastic noise (variance increases with amount), seasonal patterns (weekly, semi-monthly, monthly), and potential concept drift over time. Longer or arbitrary horizons are explicitly out of scope: Variable-income users' irregular/seasonal pay cycles make longer-horizon targets unreliable to label and validate given the thesis timeline, so the module commits only to the three horizons above.
 
-- **Quantitative Objectives (KPIs):**
+- **Quantitative Objectives (KPIs)** (primary metrics align with Odin-Paper chapter-1 §4.3; MAPE is supplementary):
   - **Primary:**
-    - **MAPE** (Mean Absolute Percentage Error) < 15% at total level
+    - **MAE** < 15% of mean daily spending at total level
+    - **SMAPE** < 15% at total level
       - **⚠ Domain mismatch note:** The originally cited benchmarks (NNAR 2.67%, CNN-LSTM 2.72% [Krstev et al., 2023; Ullah et al., 2024]) are from electricity load forecasting and generic time-series datasets, not household/personal finance. These benchmarks are not directly comparable to Odin's synthetic Filipino persona data. The 15% target is a researcher-defined fallback based on: (a) household expense forecasting is inherently noisier than electricity load forecasting due to irregular spending patterns, discretionary variability, and income volatility; (b) Odin's data is synthetic with injected behavioral features, adding a layer of approximation; (c) realistic targets for personal finance forecasting in developing-economy contexts should account for higher income volatility and irregular transaction patterns.
-    - **MAPE** < 20% at category group level
-    - **MAPE** < 25% at category level
+    - **SMAPE** < 20% at category group level
+    - **SMAPE** < 25% at category level
+    - **MDA** > 0.60 at total level (direction-of-change accuracy)
   - **Secondary:**
+    - **MAPE** < 20% at total level (supplementary; used for continuity with earlier baselines)
     - **R²** > 0.70
       - **⚠ Domain mismatch note:** The originally cited benchmark (Ensemble R² = 0.9921 [Sonkavde et al., 2023]) is from stock price prediction, a fundamentally different domain. Household expense forecasting has inherently lower R² due to higher variance in discretionary spending. The 0.70 target is a researcher-defined fallback.
     - **RMSE** < 25% of mean daily spending
@@ -601,14 +608,15 @@
 ## 7. Model Evaluation Plan
 *Define the rigorous methodology to compare models fairly, without predefining the outcomes.*
 
-- **Primary Evaluation Metric:**
-  - **MAPE** (Mean Absolute Percentage Error) at the specified forecast level - literature: recommended for scale-independent comparison [Krstev et al., 2023; Ullah et al., 2024]
-  - Justification: Interpretable as percentage error; comparable across different spending levels
-
-- **Secondary Metrics:**
-  - **R²** - literature: coefficient of determination for fit quality [Sonkavde et al., 2023]
-  - **RMSE** (Root Mean Square Error) - literature: penalizes large errors heavily [Ullah et al., 2024]
+- **Primary Evaluation Metrics** (aligns with Odin-Paper chapter-1 §4.3 specific objectives):
   - **MAE** (Mean Absolute Error) - literature: robust, intuitive metric [Bhavana et al., 2025]
+  - **SMAPE** (Symmetric Mean Absolute Percentage Error) - scale-independent, symmetric between under- and over-forecasts
+  - **MDA** (Mean Directional Accuracy) - measures whether the direction of change is predicted correctly
+  - **RMSE** (Root Mean Square Error) - literature: penalizes large errors heavily [Ullah et al., 2024]
+
+- **Supplementary Metrics:**
+  - **MAPE** (Mean Absolute Percentage Error) at the specified forecast level - literature: recommended for scale-independent comparison [Krstev et al., 2023; Ullah et al., 2024]; kept for continuity with earlier baselines, not a primary KPI
+  - **R²** - literature: coefficient of determination for fit quality [Sonkavde et al., 2023]
   - **Inference time** (P95 latency) - literature: critical for mobile-first applications [Hall, 2025]
   - **Model size** (MB) - literature: 91% of ML models degrade in production, often within days [CITATION NOT FOUND — verify or remove claim]
 
@@ -820,12 +828,14 @@
 ---
 
 # Model Design Document - Anomaly Detector
-**Document Version:** v2.2  
+**Document Version:** v2.3  
 **Module Name:** Anomaly Detector  
 **Author(s):** Guevarra
-**Date:** 2026-07-26  
+**Date:** 2026-08-10  
 **Status:** Draft
 **Companion Documents:** `bsp-fies-crosswalk.md`, `synthetic-injection-rules.md`
+
+> **v2.3 change:** Evaluation metrics aligned with Odin-Paper chapter-1 §4.4 — primary metrics are now Accuracy, Precision, Recall, F1; AUC-PR/ROC demoted to supplementary.
 
 ---
 
@@ -1070,15 +1080,15 @@
 ## 7. Model Evaluation Plan
 *Define the rigorous methodology to compare models fairly, without predefining the outcomes.*
 
-- **Primary Evaluation Metric:**
-  - **F1-Score** (anomalous class) - literature: balances precision (avoid false alarms) and recall (catch anomalies) [Kalideen, 2025]
-  - **Justification:** F1 provides balanced view of performance on minority class
-
-- **Secondary Metrics:**
-  - **Precision** - literature: users are sensitive to false positives; 0.98 precision achieved in fraud detection [Al Rafi, 2024]
+- **Primary Evaluation Metrics** (aligns with Odin-Paper chapter-1 §4.4 specific objectives):
+  - **Accuracy** - overall correct classification rate
+  - **Precision** (anomalous class) - literature: users are sensitive to false positives; 0.98 precision achieved in fraud detection [Al Rafi, 2024]
   - **Recall** - literature: prioritize catching anomalies; 0.886-0.918 recall achieved [Sahraoui & Zari, 2025]
+  - **F1-Score** (anomalous class) - literature: balances precision (avoid false alarms) and recall (catch anomalies) [Kalideen, 2025]
+
+- **Supplementary Metrics:**
   - **AUC-ROC** - literature: threshold-independent measure; 0.97 achieved by autoencoder [Fariha et al., 2025]
-  - **AUC-PR** - literature: more informative for highly imbalanced data [George et al., 2023]
+  - **AUC-PR (PR-AUC)** - literature: more informative for highly imbalanced data [George et al., 2023]
   - **False Positive Rate** - literature: 0.041 achieved by TA-IFDC [Huang A. et al., 2025]
   - **Inference time** (P95 latency) - literature: <10-100ms for real-time [Ahmed et al., 2025]
   - **Cost Savings** - literature: cost-sensitive optimization should minimize `C = c_fp × FP + c_fn × FN` [Karthikeyan et al., 2026]
@@ -1379,3 +1389,241 @@
   5. **Address cold-start early** → Synthetic data via TVAE or LLM augmentation [CITATION NOT FOUND — verify or remove claim; Du et al., 2025]
   6. **Monitor for concept drift continuously** → Dual ADWIN+EDDM strategy [CITATION NOT FOUND — verify or remove claim]
   7. **Design for 30-day data windows** - longer windows don't improve performance [Heirene et al., 2026]
+
+---
+
+# Model Design Document - Budget Optimizer
+
+**Document Version:** v1.0  
+**Author(s):** Group 4, III-DCSAD
+**Date:** 2026-08-10  
+**Status:** Draft
+**Purpose:** Define the Budget Optimizer module that turns a user's income, obligations, restrictions, and preferences into a recommended budget allocation.
+
+> **Status note:** This module was added to the Odin system specification in `system-spec.md` v0.3.0 (2026.08.08). This MDD closes the "definition pending in Odin-ML" gap referenced by the system spec (§3.5, §3.6, §7). It follows the same structure and candidate-selection discipline as the PFP, Forecaster, and Anomaly Detector MDDs. Budget recommendation is a **constraint-optimization** problem rather than a predictive modeling problem, so its candidates are allocation strategies and its KPIs are satisfaction/utilization measures.
+
+---
+
+## 0. Module Context & Isolation Boundary (The Invariant Contract)
+
+### 0.1. Module Function
+
+Given a user's available funds (current balance plus expected income over the budget period), category restrictions (FREE / PROTECTED / LOCKED), a target allocation pattern derived from the user's PFP and preferences, and forecasted spending, the Budget Optimizer produces a **recommended per-category allocation** that:
+
+- maximizes adherence to the user's priorities and preferences,
+- honors hard constraints (floors and ceilings, protected/locked categories, feasibility against available funds),
+- explains its reasoning, and
+- never auto-applies the budget (explicit user acceptance is required, per BR-03).
+
+This is a decision-support output; the final allocation is always user-confirmed.
+
+### 0.2. Strict Input Contract (What the module receives)
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `request_id` | String | Yes | Unique request identifier |
+| `user_id` | String | Yes | Owning user (scoped) |
+| `payload.available_funds` | Float | Yes | Balance + expected income over the period |
+| `payload.period` | Object | Yes | `start`, `end` of the budget period |
+| `payload.categories` | List[Object] | Yes | Per-category: `category_id`, `restriction_level` (`FREE`/`PROTECTED`/`LOCKED`), `floor`, `ceiling`, `priority_weight`, optional `current_spend` |
+| `payload.target_ratios` | Object | Optional | Target allocation ratios (e.g., from a 50/30/20-style profile rule or user preferences) |
+| `payload.transaction_history` | List[Object] | Optional | Recent spending per category (historical-proportion baseline) |
+| `payload.forecast` | Object | Optional | Forecaster output (expected total/category spend) |
+| `options.include_reasoning` | Boolean | No | Include per-category explanations (default `true`) |
+
+Invalid payloads: missing `categories`, negative `available_funds`, conflicting floors/ceilings (floor > ceiling on the same category), or malformed restriction levels are rejected and reported as `FAILURE`.
+
+### 0.3. Strict Output Contract (What the module returns)
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `response_id` | String | Unique response identifier |
+| `request_id` | String | Echo of the request |
+| `user_id` | String | Owning user |
+| `recommendation` | Object | `allocations` (`{category_id → amount}`), `utilization_rate`, `constraint_satisfaction`, `feasibility` (`FEASIBLE`/`REDUCED`/`INFEASIBLE`) |
+| `explanations` | List[Object] | Per-category reasons (protected from cuts, reduced, locked at amount, etc.) when requested |
+| `status` | String | `SUCCESS`, `FAILURE`, or `FALLBACK` |
+| `metadata` | Object | `processing_time_ms`, `strategy_used` (`tier0`/`tier1`/`tier2`), `model_version` |
+
+The module must **never throw an unhandled exception**; it always returns the structured contract with `FALLBACK` values (e.g., proportional allocation from `transaction_history`, or a uniform split) if the primary strategy fails.
+
+### 0.4. Explicit Non-Responsibilities (Out of Scope)
+
+- **Auto-applying budgets** — requires explicit user acceptance, modify, or reject (BR-03).
+- **Forecasting** — consumes the Forecaster output; does not predict future spend.
+- **Financial profiling** — consumes the PFP assignment; does not compute it.
+- **Reducing protected or locked categories** — non-negotiable spending is never recommended for reduction (TX-03, BU-03).
+- **Licensed financial advice** — outputs are decision support only.
+- **Debt payoff optimization** — savings/debt projection is handled elsewhere (DM-04); the Optimizer only respects them as constraints when provided.
+
+---
+
+## 1. Problem Statement (Scope, Objectives, and KPIs)
+
+### 1.1 Problem Statement
+
+Filipino working young adults manage budgets under variable income, protected obligations, and fixed spending (system-spec §1.2). A static rule (e.g., 50/30/20) applied uniformly ignores the user's obligations and preferences and can recommend infeasible or painful cuts. The Budget Optimizer converts the user's constraints and priorities into a feasible, explainable allocation recommendation — and when the budget is infeasible, it reduces discretionary categories in a principled order instead of alarming the user (old spec Article XX §3).
+
+### 1.2 KPIs (Pre-Registered)
+
+| KPI | Definition | Target |
+| :--- | :--- | :--- |
+| **Constraint Satisfaction Rate** | Fraction of hard constraints (floors, ceilings, protected/locked levels, income feasibility) satisfied by the recommendation | 1.0 on feasible instances |
+| **Budget Utilization Rate** | Proportion of available funds allocated across categories | ≥ 0.95 (and ≤ 1.0) |
+| **Deviation from User Preferences** | Weighted absolute deviation of the recommendation from target ratios/priorities | Minimized; ≤ 10% weighted deviation target on feasible instances |
+
+### 1.3 Primary Metric
+
+**Constraint Satisfaction Rate** is the primary metric. **Budget Utilization Rate** is the secondary metric; **Deviation from User Preferences** is the tertiary metric used to break ties among strategies with equal satisfaction/utilization.
+
+---
+
+## 2. Data Collection Plan (Sourcing, Types, and Sizes)
+
+- **Sources:** user budget allocations and restriction levels (system taxonomy TX-01, user CRUD), transaction history, obligation records (FA-03), and the Forecaster output. All data is user-owned and scoped by `user_id`.
+- **Synthetic evaluation set:** reuse the persona/transaction pipeline (`training/synth/`) — each persona provides a ground-truth budget (from its PFP octant's profile rule), restriction levels (sampled from archetype parameters), and 12 months of transactions. Target: ~10,000 personas for optimization evaluation.
+- **Baselines:** current-spending proportional allocation and a uniform split serve as Tier 0 reference allocations.
+
+---
+
+## 3. Data Preprocessing & Cleaning Specifications
+
+1. Aggregate transactions per category per period to obtain `current_spend`.
+2. Validate restriction levels; derive floors/ceilings:
+   - `FREE`: floor/ceiling set by the user (defaults: floor 0, ceiling = available funds).
+   - `PROTECTED`: floor fixed (current spend or user-set floor); ceiling adjustable.
+   - `LOCKED`: floor = ceiling = fixed amount.
+3. Compute `available_funds = current_balance + forecast_income(period)` (fallback: historical mean income).
+4. Normalize `priority_weight` per category (sum to 1) for the deviation metric.
+5. If no forecast is available (cold start), use historical category proportions from the profile-average (see §12).
+
+---
+
+## 4. Exploratory Data Analysis (EDA) Plan
+
+- Distribution of feasible vs. infeasible instances across personas; utilization shortfalls; which categories absorb reductions.
+- Sensitivity of Constraint Satisfaction Rate to income volatility (variable-income personas) and obligation weight.
+- Where EDA is bundled with the shared pipeline, keep an optimizer-specific section for allocation/reduction behavior (see `4_eda/`).
+
+---
+
+## 5. Feature Engineering Strategy
+
+The optimizer works directly on structured constraints; "features" are the encoded decision inputs:
+
+| Feature | Derivation |
+| :--- | :--- |
+| `category_current_spend` | Aggregated spend per category over the lookback window |
+| `category_floor` / `category_ceiling` | From restriction level (FREE/PROTECTED/LOCKED) |
+| `category_priority_weight` | User preference or PFP-profile rule weight |
+| `category_target_ratio` | From profile rule (e.g., 50/30/20) or user preferences |
+| `is_protected` / `is_locked` | Restriction flags (hard constraints) |
+| `forecast_category_spend` | Forecaster output for the period (optional) |
+
+No normalization required; all values are in PHP or unit-free ratios.
+
+---
+
+## 6. Data Modeling Strategy (Algorithm Selection & Baseline)
+
+As with the other modules, the candidate is selected empirically using a pre-registered selection rule, not assumed. The candidates are allocation strategies evaluated on the synthetic persona set:
+
+| Tier | Strategy | Description | Implementation |
+| :--- | :--- | :--- | :--- |
+| Tier 0 | Proportional baseline | Allocate available funds in proportion to historical spend (or uniform if no history) | Pandas/numpy |
+| Tier 1 | Constraint-aware greedy | Allocate locked/protected floors first, then discretionary ceilings, then remaining funds by priority weight; reduction hierarchy applied when infeasible | Custom Python |
+| Tier 2 | Linear Programming (LP) | Minimize weighted deviation from target ratios subject to floors, ceilings, and income-feasibility constraints | `scipy.optimize.linprog` |
+| Tier 3 | Priority/MILP variant | Integer or lexicographic priority optimization if Tier 2's continuous relaxation is inadequate (e.g., discrete allocation units) | `scipy`/`pulp` (evaluated, likely unnecessary) |
+
+### 6.1 Pre-Registered Selection Rule
+
+1. Highest **Constraint Satisfaction Rate** within the latency budget (`< 500 ms` P95, server-side with cached results).
+2. Among strategies within a pre-registered margin (e.g., 1 point) of the best on the primary metric, prefer the **simpler/more interpretable** strategy (Tier 0/1 over Tier 2).
+3. Ties resolved by **Budget Utilization Rate**, then **Deviation from User Preferences**.
+
+### 6.2 Expected Outcome Framing
+
+Both results are valid, reportable contributions: (a) Tier 2 LP strictly improves constraint satisfaction/utilization beyond the margin, justifying the optimization approach; or (b) no learned/optimization tier clears the margin, in which case Tier 1 (constraint-aware greedy) is selected and the finding is documented. The comparison keeps the module honest about whether a solver is actually needed.
+
+---
+
+## 7. Model Evaluation Plan
+
+- **Protocol:** evaluate on the synthetic persona set (same walk-forward discipline as the other modules where budget periods align with monthly folds). Metrics are computed per instance and averaged.
+- **Primary:** Constraint Satisfaction Rate (fraction of hard constraints satisfied).
+- **Secondary:** Budget Utilization Rate (allocated / available funds).
+- **Tertiary:** Deviation from User Preferences (weighted absolute deviation from target ratios).
+- **Additional:** feasibility classification rate, reduction amount on infeasible instances, reasoning accuracy (is each protected/locked category untouched?).
+- **Pre-registered margin:** 0.01 on Constraint Satisfaction Rate for the simpler-tier preference.
+
+---
+
+## 8. Optimization Strategy (Tuning & Ensembling)
+
+- **LP tuning:** choose solver (HiGHS via `scipy`) and warm-start; tune the preference-deviation penalty relative to hard constraints (hard constraints are absolute; preferences are soft).
+- **Ensembling is not expected** — a single strategy wins selection; a heuristic fallback (Tier 1) is retained for `FALLBACK`/degraded paths.
+- **Budget:** 10 days (see §11).
+
+---
+
+## 9. Deployment Strategy & Module Packaging
+
+- Served as the **`budget-optimizer`** FastAPI container on port **8005** (system-spec §3.5), behind the API gateway.
+- The strategy is parameterized (no large model artifact); the "model" is the selected strategy plus the profile-rule/ratio configuration, versioned with `metadata.json` (strategy name, profile-rule version, training-data hash, evaluation metrics, dependency versions).
+- Exposes `/health`, `/ready`, `/metrics` (system-spec §3.5).
+- Results are cached locally by the client for offline display; refresh is periodic (BR-01).
+
+---
+
+## 10. Model Monitoring & Lifecycle Plan
+
+| Drift type | Detection | Trigger |
+| :--- | :--- | :--- |
+| Input drift | Change in category/restriction distribution, income volatility | PSI > threshold over rolling window |
+| Performance drift | Constraint Satisfaction Rate, Utilization, Deviation tracked on accepted-vs-recommended budgets | Satisfaction < 0.95 for N consecutive periods |
+| Preference drift | User accept/reject pattern diverges from recommendations | Reject rate > threshold |
+
+Retraining here = re-estimating target ratios and validating the selected strategy; since the module is solver-based, monitoring focuses on constraint realism and preference fit rather than model weights.
+
+---
+
+## 11. Timeline, Dependencies, and Decision Gates
+
+- **Shared Data phase:** reuse the shared data phase (already complete) — no new data collection.
+- **Budget Optimizer module:** picks up after shared Feature Engineering; estimated 10 days: constraint encoding (2), candidate strategies (3), evaluation (3), selection + packaging (2).
+- **Dependencies:** Forecaster output (expected income/spend) and PFP assignment (target ratios) are consumed; Debt Management feeds freed-cash-flow into the income side (DM-04).
+
+---
+
+## 12. Cold-Start Handling
+
+- **New users with no transaction history:** use the PFP-derived profile rule (e.g., from `QUESTIONNAIRE` mode) to set target ratios; allocate available funds by priority weight with the same feasibility logic. This is the "Cold-Start Budget Recommendation" path (old spec Article XX §1).
+- **No forecast available:** fall back to profile-average category proportions.
+
+---
+
+## 13. Concept Drift & Assumptions
+
+### Key Assumptions
+
+1. **Constraint realism:** restriction levels and floors/ceilings are user-intent and authoritative (TX-03); the optimizer must never violate them.
+2. **Income availability:** `available_funds` reflects balance plus realistic expected income; over-estimates surface as infeasibility, handled via principled reduction.
+3. **Single-user scope:** optimization runs per authenticated `user_id`; no multi-tenant logic.
+4. **Server-side execution:** the mobile build stays light; results are cached locally (BR-01).
+5. **Synthetic validation:** KPIs are measured on synthetic personas; generalization to real users is untested until prototype-user data exists (shared limitation with the other modules).
+
+### Threats to Validity
+
+- Optimization quality depends on the realism of synthetic restriction levels and target ratios.
+- Reduction hierarchies are researcher-defined pending SME validation (same gating as PFP thresholds).
+- Preference weights are a simplification of real human budgeting priorities.
+
+---
+
+## 14. References
+
+- Odin system specification v0.3.0 (§3.5, §3.6, §6.9, §12) — budget optimizer definition pending note, now closed by this MDD.
+- Odin PRD (`prd.md`) — budget recommendation requirements (BR-01 to BR-03).
+- Preserved historical `specification (OLD).md` v4.0 (Articles XVIII–XXI) — restriction levels, feasibility, reduction hierarchy, cold-start budget recommendation.
+- `module-integration.md` v1.1 — Budget Optimizer integration contracts.
+- `deployment-architecture.md` v1.1 — `budget-optimizer` container definition.
