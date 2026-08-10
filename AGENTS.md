@@ -277,12 +277,12 @@ Secondary repository for:
 
 ### Python and ML Service
 
-- Python `3.14.4`
+- Python `3.13.14` (runtime pinned by `odin-ml/.python-version`; the thesis system spec targets Python 3.14 — flagged in `training/TODO.md`)
 - FastAPI `0.135.3`
 - Uvicorn
-- TensorFlow `2.21.0` (pinned but unavailable in current environment — use PyTorch for deep learning)
-- PyTorch (primary deep learning framework — use torch.nn for LSTM, GRU, BiLSTM)
+- PyTorch `2.13.0` (primary deep learning framework — use torch.nn for LSTM, GRU, BiLSTM; also powers the anomaly autoencoder)
 - scikit-learn `1.8.0`
+- scipy, joblib, pandas, numpy, pyarrow
 - Pytest
 - HTTPX
 
@@ -304,7 +304,7 @@ The workspace pins runtime versions with repo-local files:
 - `odin/.nvmrc`: Node.js `24.15.0`
 - `odin/.node-version`: Node.js `24.15.0`
 - `odin/package.json`: pnpm `10.26.1` via `packageManager`
-- `odin-ml/.python-version`: Python `3.14.4`
+- `odin-ml/.python-version`: Python `3.13.14`
 
 Use these files as the source of truth for local runtime selection.
 
