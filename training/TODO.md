@@ -1,7 +1,19 @@
 # OpenCode Agent Task List — Odin MDD Follow-Ups
-**Date:** 2026-07-26
-**Relates to:** `module-design-document.md` (PFP Classifier v1.3, Forecaster v2.3, Anomaly Detector v2.2)
+**Date:** 2026-07-26 (status refreshed 2026-08-10)
+**Relates to:** `module-design-document.md` (PFP Classifier v1.4, Forecaster v2.4, Anomaly Detector v2.3, Budget Optimizer v1.0)
 **Purpose:** Tasks flagged in the MDD with `[PROP — pending]` or `[NOTE]` that require external context, source documents, or research the researchers/Claude do not have loaded in-session. Each task lists what's needed, why it matters, and what "done" looks like so the agent can close the loop without a researcher re-explaining context.
+
+## Status Summary (2026-08-10)
+
+| Task | Status |
+|------|--------|
+| 1 — Build `bsp-fies-crosswalk.md` | **Done** — file exists at `1_problem-statement/bsp-fies-crosswalk.md` (v1.0, Draft) |
+| 2 — BSP-informed edge-case archetypes | Pending — needs SME review of `persona-validation-list-SME-draft.md` |
+| 3 — Author+year citations | Pending |
+| 4 — Ground candidate models in literature + cost tags | Pending |
+| 5 — Forecaster target metrics from literature | Pending |
+| 6 — Forecaster persona duration consistency | Pending |
+| 7 — Unify shared Data phase across timelines | Pending |
 
 ---
 
@@ -94,3 +106,17 @@
 **What to do:** Restructure the timeline tables (or add a shared cross-module timeline) so the Data phase appears once as a shared effort, with each module's timeline picking up from the point of triplication (feature engineering) onward.
 
 **Done when:** the three MDDs' timelines no longer imply three independent data-collection efforts.
+
+---
+
+## Known Data & Version Gaps (flagged, not fixed)
+
+These were surfaced during the serving-API work (2026-08-10) and left as **flags** per the scoped agreement — none were silently "fixed" in the training data or retrained models.
+
+1. **Persona volume vs. SME-reviewed archetypes.** The persona validation list documents **12 archetypes (A–L)** for SME review, but the pipeline generates **12,000 personas** (`generate_personas.py` default `personas_per_archetype=1000`, verified in `training/synth/personas.parquet`). Confirm 12,000 is intended (per FIES 2023 sample size) or scale down.
+2. **PFP per-class support is zero for some labels.** `train_pfp.py` produced per-class metrics of 0% for several `pfp_label` classes (e.g., `Stable/Obligated/Tight`). This is a labeling artifact of the synth data, not a serving bug — needs a labeling-quality pass before trusting PFP class confidence.
+3. **Label vocabulary mismatch.** `system-spec.md` v0.3.0 uses `At-Risk` while training data and `train_pfp.py` use `Tight` (e.g., `Stable/Obligated/Tight`). Either the spec or the labels must change; the spec is the ground truth.
+4. **Python version drift.** The thesis system spec targets Python 3.14; `odin-ml` runtime is pinned to 3.13.14 (`.python-version`). Revisit before deployment.
+5. **scikit-learn version pin.** Training artifacts were produced with scikit-learn 1.9.0, but `requirements.txt` pins 1.8.0 — produces `InconsistentVersionWarning` app-wide (filtered, non-fatal). Pin to 1.9.0 or retrain.
+6. **Anomaly artifact metadata.** `evaluation.json` has no `feature_columns` key; the serving layer hardcodes `ANOMALY_FEATURE_COLS` (24) in `app/services/anomaly_service.py`. Move the column list into `metadata.json` on the next retrain.
+7. **Forecaster CI method.** Prediction intervals come from RF forest percentiles (bagging variance) rather than a true quantile LSTM. Adequate for v1, documented in `app/services/forecast_service.py`.

@@ -6,13 +6,13 @@ Python microservice for machine learning APIs and inference, plus the complete m
 
 | Directory | Purpose |
 |-----------|---------|
-| `app/` | FastAPI microservice for model serving |
-| `scripts/` | Data collection, preprocessing, and analysis pipeline |
-| `docs/` | ML design documents, feature specs, preprocessing docs |
-| `datasets/raw/` | FIES 2023, PSA, BSP source data (CSV input) |
-| `datasets/processed/` | Preprocessed raw feature matrices (Parquet) |
-| `datasets/engineered/` | Engineered feature matrices (Parquet) |
-| `synth/` | Generated personas and transactions (Parquet) |
+| `app/` | FastAPI microservice for model serving (PFP, forecaster, anomaly, budget) |
+| `tests/` | Pytest coverage for the serving API |
+| `training/scripts/` | Data collection, preprocessing, feature engineering, and training pipeline |
+| `training/docs/` | ML design documents, feature specs, preprocessing docs |
+| `training/datasets/` | Processed + engineered feature matrices (Parquet, gitignored) |
+| `training/synth/` | Generated personas and transactions (Parquet, gitignored) |
+| `training/models/` | Trained model artifacts (joblib, gitignored) |
 | `figures/` | EDA plots and analysis outputs |
 
 ## Model Development Pipeline
@@ -20,74 +20,60 @@ Python microservice for machine learning APIs and inference, plus the complete m
 ```
 FIES 2023 Data → collector.py → preprocessor.py → feature_engineering.py → eda.py → [train scripts]
      ↓                ↓               ↓                    ↓                  ↓
-  datasets/raw/    datasets/    synth/ + datasets/    datasets/          figures/
-                  unprocessed/    processed/          engineered/
+ training/datasets/ training/     training/synth/ +    training/          figures/
+      raw/       unprocessed/       datasets/          datasets/
+                                   processed/          engineered/
 ```
 
-### Step 1: Collect Data
+All pipeline commands run from the repository root with the virtualenv activated:
 
 ```bash
-python scripts/collector.py \
-  --input datasets/raw/ \
-  --output datasets/unprocessed/
+python training/scripts/collector.py \
+  --input training/datasets/raw/ \
+  --output training/datasets/unprocessed/
 ```
 
-Converts raw CSV datasets to Parquet format for pipeline consumption.
-
-### Step 2: Preprocess Data
-
 ```bash
-python scripts/preprocessor.py \
-  --input datasets/unprocessed/puf.parquet \
-  --output datasets/processed/
+python training/scripts/preprocessor.py \
+  --input training/datasets/unprocessed/puf.parquet \
+  --output training/datasets/processed/
 ```
 
-Runs synthesis (persona + transaction generation) internally, then splits personas into train/val/test and exports raw feature matrices (metadata + 11 raw columns). No feature engineering or normalization — that happens in the next step.
-
-### Step 3: Engineer Features
-
 ```bash
-python scripts/feature_engineering.py \
-  --input datasets/processed/ \
-  --output datasets/engineered/
+python training/scripts/feature_engineering.py \
+  --input training/datasets/processed/ \
+  --output training/datasets/engineered/
 ```
 
-Computes 17 derived financial features, cyclical encoding, interaction features, redundant feature removal, optional feature selection and PCA. Reads raw data from `datasets/processed/`, outputs engineered matrices to `datasets/engineered/`.
-
-### Step 4: Run Exploratory Data Analysis
-
 ```bash
-python scripts/eda.py \
-  --input datasets/processed/ \
+python training/scripts/eda.py \
+  --input training/datasets/processed/ \
   --output figures/ \
   --seed 42
 ```
 
-Produces a comprehensive EDA report with static plots covering distributions, correlations, class balance, temporal patterns, anomalies, and data quality. Works with both raw data (`datasets/processed/`) and engineered data (`datasets/engineered/`).
-
 ```bash
-python scripts/train_pfp.py --input datasets/processed/ --output models/pfp
-python scripts/train_forecaster.py --input datasets/processed/ --output models/forecaster
-python scripts/train_anomaly.py --input datasets/processed/ --output models/anomaly
+python training/scripts/train_pfp.py --input training/datasets/processed/ --output training/models/pfp
+python training/scripts/train_forecaster.py --input training/datasets/processed/ --output training/models/forecaster
+python training/scripts/train_anomaly.py --input training/datasets/processed/ --output training/models/anomaly
 ```
+
+The Budget Optimizer is a constraint-optimization module (LP via `scipy.linprog`); see the Budget Optimizer MDD v1.0 in `training/docs/1_problem-statement/module-design-document.md`.
 
 ## Tech Stack
 
-- Python `3.14.4`
+- Python `3.13.14` (runtime pinned by `.python-version`; the thesis system spec targets Python 3.14 — see `training/TODO.md`)
 - FastAPI `0.135.3`
 - Uvicorn
-- TensorFlow `2.21.0`
+- PyTorch `2.13.0` (primary deep learning framework — forecaster LSTM/GRU, anomaly autoencoder)
 - scikit-learn `1.8.0`
-- pandas, numpy
-- pyarrow (Parquet support)
+- scipy, joblib, pandas, numpy, pyarrow
 - matplotlib, seaborn (visualization)
 - Pytest, HTTPX
 
 ## Prerequisites
 
-Install these before working in this repository:
-
-- Python `3.14.4`
+- Python `3.13.14`
 - `pip`
 - `venv`
 
@@ -96,82 +82,55 @@ Install these before working in this repository:
 ```text
 odin-ml/
 ├─ app/
-│  └─ main.py                    # FastAPI entrypoint
-├─ scripts/
-│  ├─ collector.py               # CSV to Parquet conversion
-│  ├─ generate_personas.py       # 14-archetype persona generator
-│  ├─ generate_transactions.py   # 12-month transaction generator
-│  ├─ preprocessor.py            # Synthesis + splitting + raw data export
-│  ├─ feature_engineering.py     # 17 derived features + encoding + selection + PCA
-│  ├─ synthesizer.py             # Deprecated — use preprocessor.py
-│  ├─ eda.py                     # Exploratory data analysis (works with raw or engineered)
-│  └─ fies_columns.py            # FIES variable ID mapping
-├─ docs/
-│  ├─ README.md                  # Documentation index
-│  ├─ 1_problem-statement/       # MDD and module designs
-│  ├─ 2_data-collection/         # FIES dictionary
-│  ├─ 3_data-preprocessing/      # Preprocessing pipeline docs
-│  ├─ 4_eda/                     # EDA report and analysis
-│  ├─ prerequisites/             # Feature sets, validation, deployment
-│  └─ standards/                 # Coding standards
-├─ datasets/
-│  ├─ raw/                       # FIES, PSA, BSP source data (CSV)
-│  ├─ unprocessed/               # Parquet format of raw data (collector output)
-│  ├─ processed/                 # Preprocessed raw feature matrices (Parquet)
-│  └─ engineered/                # Engineered feature matrices (Parquet)
-├─ synth/                        # Generated personas + transactions (Parquet)
-├─ figures/                      # EDA plots and analysis outputs
+│  ├─ api/                        # FastAPI route modules (health, pfp, forecast, anomaly, budget)
+│  ├─ services/                   # Inference and business logic (reuses training feature builders)
+│  ├─ models/                     # Model loading and artifact registry
+│  ├─ schemas/                    # Pydantic request and response models
+│  ├─ core/                       # Settings, startup wiring
+│  └─ main.py                     # FastAPI entrypoint
+├─ tests/                         # Pytest coverage
+├─ training/
+│  ├─ scripts/                    # collector, preprocessor, feature engineering, train_* scripts
+│  ├─ docs/                       # ML design documents and phase docs
+│  ├─ datasets/                   # raw/, unprocessed/, processed/, engineered/ (Parquet, gitignored)
+│  ├─ synth/                      # Generated personas + transactions (Parquet, gitignored)
+│  └─ models/                     # Trained artifacts: pfp/, forecaster/, anomaly/ (gitignored)
+├─ figures/                       # EDA plots
 ├─ requirements.txt
-└─ requirements-dev.txt
+├─ requirements-dev.txt
+├─ AGENTS.md
+└─ README.md
 ```
 
 ## First-Time Setup
 
 ### Windows
 
-Use PowerShell:
-
 ```powershell
 cd C:\path\to\App\odin-ml
-py -3.14 -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-```
-
-Start the FastAPI dev server:
-
-```powershell
-uvicorn app.main:app --reload --port 8000
 ```
 
 ### Bash
 
-Use this on Linux, macOS, WSL, or Git Bash:
-
 ```bash
 cd /path/to/App/odin-ml
-python3.14 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-```
-
-Start the FastAPI dev server:
-
-```bash
-uvicorn app.main:app --reload --port 8000
 ```
 
 ### Fish
 
-Use the Fish activation script, not the Bash one:
-
 ```fish
 cd /path/to/App/odin-ml
-python3.14 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate.fish
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -180,82 +139,38 @@ pip install -r requirements-dev.txt
 
 Start the FastAPI dev server:
 
-```fish
+```bash
 uvicorn app.main:app --reload --port 8000
 ```
-
-## Environment Variables
-
-The current scaffold does not require secrets yet, but this service will likely need environment variables once model storage, Supabase, or external services are connected.
-
-Expected future values:
-
-```env
-PORT=8000
-MODEL_PATH=
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-```
-
-Do not commit real secrets.
 
 ## Common Commands
 
-Create the virtual environment:
-
 ```bash
-python3.14 -m venv .venv
-```
-
-Activate the environment in Bash:
-
-```bash
-source .venv/bin/activate
-```
-
-Activate the environment in Fish:
-
-```fish
-source .venv/bin/activate.fish
-```
-
-Activate the environment in Windows PowerShell:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-Install dependencies:
-
-```bash
+python3.13 -m venv .venv
+source .venv/bin/activate        # Fish: source .venv/bin/activate.fish
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-```
-
-Run the server:
-
-```bash
 uvicorn app.main:app --reload --port 8000
-```
-
-Run tests:
-
-```bash
 pytest
-```
-
-Verify the FastAPI module compiles:
-
-```bash
 python -m py_compile app/main.py
 ```
 
 ## Current Endpoints
 
-The service currently exposes:
-
-- `GET /`
-- `GET /health`
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Service banner |
+| `GET` | `/health` | Liveness probe |
+| `GET` | `/ready` | Readiness probe (models loaded) |
+| `GET` | `/metrics` | Module/winner metadata |
+| `POST` | `/api/v1/pfp/classify` | PFP classification (STANDARD / QUESTIONNAIRE) |
+| `POST` | `/api/v1/pfp/classify/batch` | Batch PFP classification |
+| `POST` | `/api/v1/forecast/predict` | Next-month expense forecast |
+| `POST` | `/api/v1/forecast/predict/batch` | Batch forecast |
+| `POST` | `/api/v1/anomaly/detect` | Transaction anomaly detection |
+| `POST` | `/api/v1/anomaly/detect/batch` | Batch anomaly detection |
+| `POST` | `/api/v1/budget/recommend` | Budget allocation recommendation (LP) |
+| `POST` | `/api/v1/budget/recommend/batch` | Batch budget recommendation |
 
 Default local URL:
 
@@ -263,21 +178,15 @@ Default local URL:
 http://localhost:8000
 ```
 
+Interactive docs: `http://localhost:8000/docs`
+
 ## Troubleshooting
 
 ### `source .venv/bin/activate` fails in Fish
 
-That is expected. Fish cannot source the Bash activation script.
-
-Use:
-
-```fish
-source .venv/bin/activate.fish
-```
+That is expected. Fish cannot source the Bash activation script; use `source .venv/bin/activate.fish`.
 
 ### PowerShell blocks script activation
-
-If PowerShell refuses to run `Activate.ps1`, open PowerShell as your user and run:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -285,31 +194,21 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Then activate the venv again.
 
-### `python3.14` is not found
+### `python3.13` is not found
 
-Confirm Python `3.14.4` is installed and on your `PATH`.
+Confirm Python `3.13.14` is installed and on your `PATH`. On Windows use `py -3.13 --version`; on Bash or Fish use `python3.13 --version`.
 
-On Windows, use:
+### PyTorch not installed
 
-```powershell
-py -3.14 --version
-```
-
-On Bash or Fish:
+The anomaly autoencoder artifact requires PyTorch at serve time. Install the CPU wheel:
 
 ```bash
-python3.14 --version
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```
-
-### TensorFlow install issues
-
-TensorFlow support can vary by platform and Python build. If installation fails, verify that your Python `3.14.4` environment is compatible with the TensorFlow wheel available for your OS and CPU architecture.
 
 ## Recommended Next Steps
 
-- Add `.env.example`
-- Add API routers under `app/`
-- Add request and response schemas
-- Add model-loading lifecycle hooks
-- Add pytest coverage for `/` and `/health`
-- Add Dockerfile for Cloud Run deployment
+- Add per-module `Dockerfile` + `docker-compose.yml` (ports 8000–8005) matching `deployment-architecture.md` v1.1
+- Add model artifact versioning (training-data hash + feature columns) to `training/models/*/metadata.json`
+- Wire the Budget Optimizer to forecast + PFP outputs (end-to-end `/api/v1/analyze`)
+- Persist prediction history for `/user/{id}/history` and `/latest` endpoints
