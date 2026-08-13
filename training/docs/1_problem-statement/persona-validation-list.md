@@ -38,7 +38,7 @@ The three classifying dimensions produce a **2×2×2 = 8 cell matrix**. Archetyp
 |-----------|-----------|-------------|-------------|
 | **Financial Stability** | Variable (CV ≥ 0.5) | Stable (CV < 0.5) | Coefficient of variation of income amounts across observed periods |
 | **Financial Obligation** | Flexible (ratio ≤ 0.6) | Obligated (ratio > 0.6) | (Essential + Obligatory expenses) / Total expenses |
-| **Financial Tolerance** | Tight (runway < 3 months) | Tolerant (runway ≥ 3 months) | Months of current expenses that existing savings/balance can cover if inflows cease |
+| **Financial Tolerance** | At-Risk (runway < 3 months) | Tolerant (runway ≥ 3 months) | Months of current expenses that existing savings/balance can cover if inflows cease |
 
 > **Note:** Thresholds above are working assumptions. Numeric thresholds are intentionally not finalized — they will be validated in Phase 4.5 (Dimension Threshold Discovery).
 
@@ -74,18 +74,18 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 | | **Stable** | **Variable** |
 |---|---|---|
 | **Obligated + Tolerant** | A — Regular employee, moderate obligations, healthy emergency fund | E — Freelancer, high obligations, adequate savings buffer |
-| **Obligated + Tight** | B — Regular employee, heavy obligations, no savings | F — Contract worker, high obligations, living paycheck-to-paycheck |
+| **Obligated + At-Risk** | B — Regular employee, heavy obligations, no savings | F — Contract worker, high obligations, living paycheck-to-paycheck |
 | **Flexible + Tolerant** | C — Regular employee, low obligations, strong savings | G — Freelancer, low obligations, healthy emergency fund |
-| **Flexible + Tight** | D — Regular employee, low obligations, minimal savings | H — Irregular earner, variable income, no emergency fund |
+| **Flexible + At-Risk** | D — Regular employee, low obligations, minimal savings | H — Irregular earner, variable income, no emergency fund |
 
 **Additional Edge-Case Archetypes (4):**
 
 | Archetype | Cell | Edge Case |
 |-----------|------|-----------|
-| I | Variable-Obligated-Tight | Recovering from financial shock (recent job loss → re-employed, runway depleted) |
-| J | Variable-Flexible-Tight | Variable income but deliberately low obligations; borderline financial tolerance |
+| I | Variable-Obligated-At-Risk | Recovering from financial shock (recent job loss → re-employed, runway depleted) |
+| J | Variable-Flexible-At-Risk | Variable income but deliberately low obligations; borderline financial tolerance |
 | K | Stable-Obligated-Tolerant | Stable income, high obligations, healthy savings — but obligations approaching threshold |
-| L | Stable-Flexible-Tight | Stable income, genuinely low obligations, but no savings habit (spends discretionary freely) |
+| L | Stable-Flexible-At-Risk | Stable income, genuinely low obligations, but no savings habit (spends discretionary freely) |
 
 ---
 
@@ -131,7 +131,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 **Dimension Values:**
 - Financial Stability: **Stable** (CV ≈ 0.15)
 - Financial Obligation: **Obligated** (ratio ≈ 0.85)
-- Financial Tolerance: **Tight** (runway ≈ 0.5 months)
+- Financial Tolerance: **At-Risk** (runway ≈ 0.5 months)
 
 **Employment Context:** Regular employee at a manufacturing firm, 5 years tenure. Consistent salary. Married, 1 child (toddler).
 
@@ -160,7 +160,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Emergency Runway:** Savings balance covers ~0.5 months of expenses. Entire paycheck goes to obligations.
 
-**Expected PFP Label:** Stable · Obligated · Tight
+**Expected PFP Label:** Stable · Obligated · At-Risk
 
 ---
 
@@ -206,7 +206,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 **Dimension Values:**
 - Financial Stability: **Stable** (CV ≈ 0.12)
 - Financial Obligation: **Flexible** (ratio ≈ 0.50)
-- Financial Tolerance: **Tight** (runway ≈ 1.5 months)
+- Financial Tolerance: **At-Risk** (runway ≈ 1.5 months)
 
 **Employment Context:** Regular employee at a government agency, 4 years tenure. Very consistent salary. Single, no dependents. Lives with parents (no rent).
 
@@ -234,7 +234,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Emergency Runway:** Savings balance covers ~1.5 months. Large discretionary allocation could theoretically be redirected.
 
-**Expected PFP Label:** Stable · Flexible · Tight
+**Expected PFP Label:** Stable · Flexible · At-Risk
 
 ---
 
@@ -281,7 +281,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 **Dimension Values:**
 - Financial Stability: **Variable** (CV ≈ 0.65)
 - Financial Obligation: **Obligated** (ratio ≈ 0.80)
-- Financial Tolerance: **Tight** (runway ≈ 0.3 months)
+- Financial Tolerance: **At-Risk** (runway ≈ 0.3 months)
 
 **Employment Context:** Fixed-term project-based employee (6-month contracts) at a construction firm. Income gaps between contracts (1–3 weeks). Married, spouse is a part-time vendor.
 
@@ -310,7 +310,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Emergency Runway:** Savings balance covers ~0.3 months. Spouse's vendor income is inconsistent and not captured in system.
 
-**Expected PFP Label:** Variable · Obligated · Tight
+**Expected PFP Label:** Variable · Obligated · At-Risk
 
 ---
 
@@ -356,7 +356,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 **Dimension Values:**
 - Financial Stability: **Variable** (CV ≈ 0.8)
 - Financial Obligation: **Flexible** (ratio ≈ 0.45)
-- Financial Tolerance: **Tight** (runway ≈ 1 month)
+- Financial Tolerance: **At-Risk** (runway ≈ 1 month)
 
 **Employment Context:** Part-time tricycle driver and occasional market vendor. No formal employment contract. Income is daily and highly variable. Single, no dependents. Lives with elderly parent (contributes to household expenses).
 
@@ -384,7 +384,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Emergency Runway:** Cash-on-hand + minimal savings covers ~1 month of expenses. No formal savings mechanism.
 
-**Expected PFP Label:** Variable · Flexible · Tight
+**Expected PFP Label:** Variable · Flexible · At-Risk
 
 ---
 
@@ -393,7 +393,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 **Dimension Values:**
 - Financial Stability: **Variable** (CV ≈ 0.7)
 - Financial Obligation: **Obligated** (ratio ≈ 0.78)
-- Financial Tolerance: **Tight** (runway ≈ 0.8 months)
+- Financial Tolerance: **At-Risk** (runway ≈ 0.8 months)
 
 **Employment Context:** Recently re-employed regular employee at a retail company (3 months tenure). Was laid off from previous employer 4 months ago — depleted savings during unemployment. Married, spouse also recently re-employed.
 
@@ -422,17 +422,17 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Emergency Runway:** Savings recovering — covers ~0.8 months. Debt from unemployment period still outstanding.
 
-**Expected PFP Label:** Variable · Obligated · Tight  
+**Expected PFP Label:** Variable · Obligated · At-Risk  
 **Note:** Archetype is transitional. Financial Tolerance may shift to Tolerant as savings rebuild.
 
 ---
 
-### Archetype J — Variable-Flexible-Tight, Borderline Financial Tolerance
+### Archetype J — Variable-Flexible-At-Risk, Borderline Financial Tolerance
 
 **Dimension Values:**
 - Financial Stability: **Variable** (CV ≈ 0.55)
 - Financial Obligation: **Flexible** (ratio ≈ 0.55)
-- Financial Tolerance: **Tight** (runway ≈ 2.5 months)
+- Financial Tolerance: **At-Risk** (runway ≈ 2.5 months)
 
 **Employment Context:** Part-time sales associate at a mall + occasional online selling. Income variable but has established a base from the retail job. Single, no dependents. Lives with parents (no rent).
 
@@ -460,7 +460,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Emergency Runway:** Savings balance covers ~2.5 months — just below the Tolerant threshold. Low obligations provide flexibility, but savings habit is inconsistent.
 
-**Expected PFP Label:** Variable · Flexible · Tight  
+**Expected PFP Label:** Variable · Flexible · At-Risk  
 **Note:** Borderline Financial Tolerance. Small behavioral change (consistent savings) could shift this archetype to Tolerant. Obligation ratio also near the Obligated threshold — a rent obligation would push it over.
 
 ---
@@ -504,12 +504,12 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 ---
 
-### Archetype L — Stable-Flexible-Tight, No Savings Habit Despite Stable Income
+### Archetype L — Stable-Flexible-At-Risk, No Savings Habit Despite Stable Income
 
 **Dimension Values:**
 - Financial Stability: **Stable** (CV ≈ 0.1)
 - Financial Obligation: **Flexible** (ratio ≈ 0.50)
-- Financial Tolerance: **Tight** (runway ≈ 1 month)
+- Financial Tolerance: **At-Risk** (runway ≈ 1 month)
 
 **Employment Context:** Regular employee at a marketing agency, 2 years tenure. Consistent salary with minor variation. Single, no dependents. Lives alone (rents a studio).
 
@@ -538,7 +538,7 @@ All 8 cells are represented. Four additional archetypes cover edge cases within 
 
 **Emergency Runway:** Savings balance covers ~1 month. Income is stable, so cash flow is never negative — but no meaningful buffer exists.
 
-**Expected PFP Label:** Stable · Flexible · Tight  
+**Expected PFP Label:** Stable · Flexible · At-Risk  
 **Note:** This archetype challenges the assumption that stable income implies financial health. System should prioritize building savings habit through automated micro-transfers.
 
 ---
@@ -576,8 +576,8 @@ The tables below show how Financial Behavior and Surplus/Deficit Rate modify sys
 |--------------------|----------------------|-----------------|
 | Tolerant | Healthy Surplus | Standard obligation tracking; suggest surplus allocation to savings goals |
 | Tolerant | Thin Surplus | Monitor obligation drift; flag if any new obligation approaches |
-| Tight | Deficit | Priority: debt-hardship pre-check → hardship threshold assessment → hardship relief options |
-| Tight | Near-Zero | Priority: emergency fund micro-transfer setup → obligation-priority scheduling |
+| At-Risk | Deficit | Priority: debt-hardship pre-check → hardship threshold assessment → hardship relief options |
+| At-Risk | Near-Zero | Priority: emergency fund micro-transfer setup → obligation-priority scheduling |
 
 #### Stable · Flexible
 
@@ -585,8 +585,8 @@ The tables below show how Financial Behavior and Surplus/Deficit Rate modify sys
 |--------------------|----------------------|-----------------|
 | Tolerant | Healthy Surplus | Standard tracking; suggest goal acceleration or investment exploration |
 | Tolerant | Thin Surplus | Flag inconsistency — stable income + low obligations should yield surplus; investigate discretionary |
-| Tight | Near-Zero | Priority: automated micro-transfer to build buffer → spending category alerts |
-| Tight | Deficit | Priority: expense categorization audit → identify reducible discretionary |
+| At-Risk | Near-Zero | Priority: automated micro-transfer to build buffer → spending category alerts |
+| At-Risk | Deficit | Priority: expense categorization audit → identify reducible discretionary |
 
 #### Variable · Obligated
 
@@ -594,8 +594,8 @@ The tables below show how Financial Behavior and Surplus/Deficit Rate modify sys
 |--------------------|----------------------|-----------------|
 | Tolerant | Healthy Surplus | High months: suggest top-up to emergency fund; low months: draw from buffer |
 | Tolerant | Thin Surplus | Monitor income volatility; suggest income-stabilization strategies (retainer pursuit, diversification) |
-| Tight | Deficit | Priority: emergency fund rebuild → income smoothing education → debt-hardship pre-check |
-| Tight | Near-Zero | Priority: runway monitoring with alerts → obligation-priority scheduling → micro-transfer in high months |
+| At-Risk | Deficit | Priority: emergency fund rebuild → income smoothing education → debt-hardship pre-check |
+| At-Risk | Near-Zero | Priority: runway monitoring with alerts → obligation-priority scheduling → micro-transfer in high months |
 
 #### Variable · Flexible
 
@@ -603,8 +603,8 @@ The tables below show how Financial Behavior and Surplus/Deficit Rate modify sys
 |--------------------|----------------------|-----------------|
 | Tolerant | Healthy Surplus | High months: top-up emergency fund; low months: flexible obligations allow natural drawdown |
 | Tolerant | Thin Surplus | Flag volatility impact; suggest building buffer during high-income periods |
-| Tight | Near-Zero | Priority: income volatility education → automated micro-transfer on high-income detection |
-| Tight | Deficit | Priority: expense categorization audit → identify reducible non-essential → emergency fund first |
+| At-Risk | Near-Zero | Priority: income volatility education → automated micro-transfer on high-income detection |
+| At-Risk | Deficit | Priority: expense categorization audit → identify reducible non-essential → emergency fund first |
 
 ### 4.4 Financial Behavior Modifier (Applied on Top of PFP Class Response)
 
@@ -627,7 +627,7 @@ Please review the following for each archetype:
 | Criterion | What to Check |
 |-----------|--------------|
 | **Parameter realism** | Are the obligation ratios, CV values, and runway months realistic for the described context? |
-| **Internal consistency** | Do the dimension values (Stable/Variable, Obligated/Flexible, Tolerant/Tight) match the persona description? |
+| **Internal consistency** | Do the dimension values (Stable/Variable, Obligated/Flexible, Tolerant/At-Risk) match the persona description? |
 | **Stereotyping** | Does any archetype rely on demographic assumptions (age, gender, location) rather than behavioral parameters? |
 | **Missing archetypes** | Are there common Filipino financial profiles not represented in the 12 archetypes? |
 | **Threshold sensitivity** | For borderline archetypes (J, K): are the parameter values realistic near the threshold boundaries? |
@@ -650,7 +650,7 @@ Are there common Filipino financial profiles not represented above?
 ## 8. Open Questions for SME
 
 1. **Obligation threshold (0.6):** Is this boundary between Obligated and Flexible realistic for Filipino young adults? Too high? Too low?
-2. **Financial Tolerance threshold (3 months):** Is 3 months of emergency runway a meaningful dividing line between Tolerant and Tight in the Philippine context?
+2. **Financial Tolerance threshold (3 months):** Is 3 months of emergency runway a meaningful dividing line between Tolerant and At-Risk in the Philippine context?
 3. **Income CV threshold (0.5):** Is a coefficient of variation of 0.5 a reasonable boundary between Stable and Variable income for someone transitioning between regular employment and freelancing?
 4. **Archetype count:** Are 12 archetypes sufficient, or should additional edge cases be added for the thesis scope?
 5. **Archetype I (recovery):** Is the "recovering from financial shock" scenario realistic? Should recovery trajectory be a tracked state?

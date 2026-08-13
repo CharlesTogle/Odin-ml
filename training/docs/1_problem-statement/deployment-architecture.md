@@ -299,8 +299,8 @@ Every published artifact carries a metadata file that pins the training data, me
     },
     "features": ["income_stability_cv", "obligation_ratio", "savings_rate", ...],
     "dependencies": {
-        "python": "3.13.14",
-        "sklearn": "1.8.0",
+        "python": "3.14.4",
+        "sklearn": "1.9.0",
         "pandas": "3.0.3"
     }
 }
@@ -406,7 +406,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.13.14'
+        python-version: '3.14.4'
     
     - name: Install dependencies
       run: pip install -r requirements.txt

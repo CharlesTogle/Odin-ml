@@ -4,7 +4,7 @@
 
 This document describes the training pipeline for the LSTM Spending Forecaster module, which predicts future monthly expenses at total level using historical transaction data.
 
-**MDD Reference:** MDD.md lines 337-770 (Model Design Document - Forecaster)
+**MDD Reference:** `module-design-document.md` lines 337-770 (Model Design Document - Forecaster)
 **Framework:** PyTorch (torch.nn.LSTM, torch.nn.GRU) — chosen over TensorFlow for CPU-efficient training without CUDA dependency
 
 ## Feature Engineering
@@ -61,7 +61,7 @@ This document describes the training pipeline for the LSTM Spending Forecaster m
 | Tier 3c | PyTorch BiLSTM | Bidirectional LSTM(64), dropout=0.2, Adam optimizer |
 
 **Note:** Tier 1 (ARIMA/ETS/Prophet) was skipped due to missing dependencies (statsmodels, prophet).
-**TensorFlow Status:** TensorFlow 2.21.0 was unavailable in the current environment (ModuleNotFoundError). PyTorch used as primary deep learning framework for LSTM/GRU/BiLSTM training.
+**TensorFlow Status:** TensorFlow was unavailable in the current environment (ModuleNotFoundError). PyTorch `2.13.0` is the pinned primary deep learning framework (see `requirements.txt` / AGENTS.md) for LSTM/GRU/BiLSTM training.
 
 ### Walk-Forward Validation
 
@@ -80,9 +80,9 @@ This document describes the training pipeline for the LSTM Spending Forecaster m
 
 ### Evaluation Metrics
 
-- **Primary:** MAPE (Mean Absolute Percentage Error)
-- **Secondary:** RMSE, MAE, R²
-- **Decision Rule:** Best model must beat naive baseline by ≥20% MAPE reduction
+- **Primary:** MAE, SMAPE, MDA, RMSE (aligned with MDD v2.4 / Odin-Paper chapter-1 §4.3)
+- **Supplementary:** MAPE, R² (MAPE kept for continuity with earlier baselines, not a primary KPI)
+- **Decision Rule:** Best model must beat the naive/ARIMA baseline by ≥20% MAPE reduction. Primary KPI targets per MDD v2.4: MAE < 15% of mean daily spending at total level, SMAPE < 15% at total level, MDA > 0.60, RMSE < 25% of mean daily spending.
 
 ## Results
 
@@ -124,10 +124,10 @@ This document describes the training pipeline for the LSTM Spending Forecaster m
 
 ### Path Forward: PyTorch LSTM
 
-TensorFlow 2.21.0 is pinned in AGENTS.md but unavailable in the current environment. The recommended path forward is to use PyTorch for LSTM/GRU/BiLSTM training:
+TensorFlow is unavailable in the current environment; PyTorch is the pinned primary deep learning framework (torch `2.13.0`). PyTorch LSTM/GRU/BiLSTM tiers (3a–3c) are implemented in `train_forecaster.py` via `torch.nn`:
 
-1. **Install PyTorch:** `pip install torch` (CPU-only, no CUDA required)
-2. **Implement PyTorch LSTM:** Use `torch.nn.LSTM` for sequence modeling
+1. **PyTorch already installed:** pinned at `torch==2.13.0` (CPU-only wheel, no CUDA required)
+2. **Sequence models implemented:** `torch.nn.LSTM`, `torch.nn.GRU`, and bidirectional LSTM for sequence forecasting
 3. **Train on CPU:** PyTorch has better CPU performance than TensorFlow for LSTM training
 4. **Export weights:** Save as `.pth` format for deployment
 

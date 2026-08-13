@@ -373,10 +373,10 @@ def bootstrap_ci(scores, n_bootstrap=1000, ci=0.95):
 
 | Output | Description | Location |
 |--------|-------------|----------|
-| `walk_forward_results.csv` | Per-split performance metrics | `docs/prerequisites/` |
-| `model_comparison.md` | Statistical comparison of models | `docs/prerequisites/` |
-| `confidence_intervals.md` | Bootstrap CIs for best model | `docs/prerequisites/` |
-| `temporal_stability.png` | Performance over time plot | `docs/prerequisites/` |
+| `walk_forward_results.csv` | Per-split performance metrics | `1_problem-statement/` |
+| `model_comparison.md` | Statistical comparison of models | `1_problem-statement/` |
+| `confidence_intervals.md` | Bootstrap CIs for best model | `1_problem-statement/` |
+| `temporal_stability.png` | Performance over time plot | `1_problem-statement/` |
 
 ---
 

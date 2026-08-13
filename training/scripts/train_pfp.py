@@ -69,24 +69,24 @@ except ImportError:
 
 PFP_CLASSES = [
     "Stable/Obligated/Tolerant",
-    "Stable/Obligated/Tight",
+    "Stable/Obligated/At-Risk",
     "Stable/Flexible/Tolerant",
-    "Stable/Flexible/Tight",
+    "Stable/Flexible/At-Risk",
     "Variable/Obligated/Tolerant",
-    "Variable/Obligated/Tight",
+    "Variable/Obligated/At-Risk",
     "Variable/Flexible/Tolerant",
-    "Variable/Flexible/Tight",
+    "Variable/Flexible/At-Risk",
 ]
 
 PFP_PALETTE = {
     "Stable/Obligated/Tolerant": "#3498db",
-    "Stable/Obligated/Tight":    "#2980b9",
+    "Stable/Obligated/At-Risk":    "#2980b9",
     "Stable/Flexible/Tolerant":  "#2ecc71",
-    "Stable/Flexible/Tight":     "#27ae60",
+    "Stable/Flexible/At-Risk":     "#27ae60",
     "Variable/Obligated/Tolerant": "#e67e22",
-    "Variable/Obligated/Tight":    "#d35400",
+    "Variable/Obligated/At-Risk":    "#d35400",
     "Variable/Flexible/Tolerant":  "#f39c12",
-    "Variable/Flexible/Tight":     "#e74c3c",
+    "Variable/Flexible/At-Risk":     "#e74c3c",
 }
 
 PRE_REGISTERED_MARGIN = 0.02  # 2 points of Macro-F1
@@ -236,7 +236,7 @@ class RuleBasedClassifier:
     def __init__(self):
         self.cv_threshold = 0.50   # default (stable vs volatile)
         self.obl_threshold = 0.60  # default (obligated vs flexible)
-        self.runway_threshold = 3.0  # default (tight vs tolerant, months)
+        self.runway_threshold = 3.0  # default (at-risk vs tolerant, months)
         self._fitted = False
 
     def _calibrate_threshold(
@@ -319,7 +319,7 @@ class RuleBasedClassifier:
         for cv, obl, runway in zip(cv_scores, obl_scores, runway_scores):
             stability = "Stable" if cv < self.cv_threshold else "Variable"
             obligation = "Obligated" if obl > self.obl_threshold else "Flexible"
-            tolerance = "Tolerant" if runway >= self.runway_threshold else "Tight"
+            tolerance = "Tolerant" if runway >= self.runway_threshold else "At-Risk"
             predictions.append(f"{stability}/{obligation}/{tolerance}")
 
         return np.array(predictions)

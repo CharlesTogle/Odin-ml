@@ -459,13 +459,13 @@ else:
 
 | Output | Description | Location |
 |--------|-------------|----------|
-| `optimal_cv_threshold.txt` | Final CV threshold | `docs/prerequisites/` |
-| `optimal_obligation_threshold.txt` | Final obligation threshold | `docs/prerequisites/` |
-| `roc_curves.png` | ROC curves for both thresholds | `docs/prerequisites/` |
-| `decision_boundaries.png` | 2D scatter plot with thresholds | `docs/prerequisites/` |
-| `confusion_matrix.png` | Confusion matrix for rule-based classifier | `docs/prerequisites/` |
-| `classification_report.txt` | Precision, recall, F1 per class | `docs/prerequisites/` |
-| `borderline_personas.csv` | Personas requiring expert review | `docs/prerequisites/` |
+| `optimal_cv_threshold.txt` | Final CV threshold | `1_problem-statement/` |
+| `optimal_obligation_threshold.txt` | Final obligation threshold | `1_problem-statement/` |
+| `roc_curves.png` | ROC curves for both thresholds | `1_problem-statement/` |
+| `decision_boundaries.png` | 2D scatter plot with thresholds | `1_problem-statement/` |
+| `confusion_matrix.png` | Confusion matrix for rule-based classifier | `1_problem-statement/` |
+| `classification_report.txt` | Precision, recall, F1 per class | `1_problem-statement/` |
+| `borderline_personas.csv` | Personas requiring expert review | `1_problem-statement/` |
 
 ---
 

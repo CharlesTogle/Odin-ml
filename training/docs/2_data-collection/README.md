@@ -58,14 +58,14 @@ This step bridges Phase 2 (data collection) and Phase 3 (preprocessing) — it i
 
 | Archetype | Stability | Obligation | Tolerance | Description |
 |-----------|-----------|------------|-----------|-------------|
-| A | Stable | Flexible | Tolerant | Steady income, low debt, healthy runway |
-| B | Stable | Flexible | Tight | Steady income, low debt, limited runway |
-| C | Stable | Obligated | Tolerant | Steady income, high debt, healthy runway |
-| D | Stable | Obligated | Tight | Steady income, high debt, limited runway |
-| E | Variable | Flexible | Tolerant | Irregular income, low debt, healthy runway |
-| F | Variable | Flexible | Tight | Irregular income, low debt, limited runway |
-| G | Variable | Obligated | Tolerant | Irregular income, high debt, healthy runway |
-| H | Variable | Obligated | Tight | Irregular income, high debt, limited runway |
+| A | Stable | Obligated | Tolerant | Steady income, high debt, healthy runway |
+| B | Stable | Obligated | At-Risk | Steady income, high debt, limited runway |
+| C | Stable | Flexible | Tolerant | Steady income, low debt, healthy runway |
+| D | Stable | Flexible | At-Risk | Steady income, low debt, limited runway |
+| E | Variable | Obligated | Tolerant | Irregular income, high debt, healthy runway |
+| F | Variable | Obligated | At-Risk | Irregular income, high debt, limited runway |
+| G | Variable | Flexible | Tolerant | Irregular income, low debt, healthy runway |
+| H | Variable | Flexible | At-Risk | Irregular income, low debt, limited runway |
 | I–L | ... | ... | ... | Additional archetypes for edge cases (self-employed, seasonal, etc.) |
 
 > **Note:** Income Stability is derived from income *consistency* (coefficient of variation), not income *magnitude* (level). High/low income levels are a separate attribute that does not determine Stability. The earlier draft's use of "Income Level: High/Low" as a proxy for Stability was a design bug — magnitude and consistency are different things.
@@ -85,8 +85,8 @@ The archetype list and classification thresholds need validation from a financia
 | Output | Location | Description |
 |--------|----------|-------------|
 | `FIES Dictionary & Valueset.csv` | `docs/2_data-collection/` | Variable ID mapping (93 lines) |
-| `persona-validation-list.md` | `docs/prerequisites/` | 12 archetypes for SME review |
-| `synthetic-injection-rules.md` | `docs/prerequisites/` | 20 rules for FIES→Persona→Transaction |
+| `persona-validation-list.md` | `1_problem-statement/` | 12 archetypes for SME review |
+| `synthetic-injection-rules.md` | `1_problem-statement/` | 20 rules for FIES→Persona→Transaction |
 | `fies_columns.py` | `scripts/` | Python module for FIES column access |
 
 ## Data Quality Notes

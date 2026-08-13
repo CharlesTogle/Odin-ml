@@ -109,33 +109,33 @@ This disaggregation assumes that per-capita income and expense shares are reason
 |-----------|-----------|-------------|-----------|
 | **Financial Stability** | Variable | Stable | CV < 0.5 = Stable; CV ≥ 0.5 = Variable |
 | **Financial Obligation** | Flexible | Obligated | Ratio ≤ 0.6 = Flexible; Ratio > 0.6 = Obligated |
-| **Financial Tolerance** | Tight | Tolerant | Runway ≥ 3 months = Tolerant; Runway < 3 months = Tight |
+| **Financial Tolerance** | At-Risk | Tolerant | Runway ≥ 3 months = Tolerant; Runway < 3 months = At-Risk |
 
 ### 3.2 Full Archetype Roster
 
 | Archetype | Name | PFP Octant | BSP Segment(s) | BSP Justification | Classifier Inclusion |
 |-----------|------|------------|-----------------|-------------------|---------------------|
 | **A** | Regular employee, moderate obligations, healthy fund | Stable·Obligated·Tolerant | Regular salaried + moderate debt + adequate savings | BSP: 88.2% have regular salary; 29.3% have debt; 2.0% have 3+ months emergency fund (top tier) | Yes — canonical octant |
-| **B** | Regular employee, heavy obligations, no savings | Stable·Obligated·Tight | Regular salaried + high debt + no emergency fund | BSP: 88.2% regular salary; 29.3% have debt; 16.4% past-due bills; 2.0% have emergency fund | Yes — canonical octant |
+| **B** | Regular employee, heavy obligations, no savings | Stable·Obligated·At-Risk | Regular salaried + high debt + no emergency fund | BSP: 88.2% regular salary; 29.3% have debt; 16.4% past-due bills; 2.0% have emergency fund | Yes — canonical octant |
 | **C** | Regular employee, low obligations, strong savings | Stable·Flexible·Tolerant | Regular salaried + no debt + strong savings | BSP: 35.3% deposit account owners; 2.0% have 3+ months emergency fund (top tier); low debt | Yes — canonical octant |
-| **D** | Regular employee, low obligations, minimal savings | Stable·Flexible·Tight | Regular salaried + low debt + minimal savings | BSP: 35.3% deposit account; low debt; 2.0% emergency fund (below threshold) | Yes — canonical octant |
+| **D** | Regular employee, low obligations, minimal savings | Stable·Flexible·At-Risk | Regular salaried + low debt + minimal savings | BSP: 35.3% deposit account; low debt; 2.0% emergency fund (below threshold) | Yes — canonical octant |
 | **E** | Freelancer, high obligations, adequate savings buffer | Variable·Obligated·Tolerant | Irregular income + debt + adequate savings | BSP: 32.7% entrepreneurial; 22.1% remittances; 29.3% debt; variable income | Yes — canonical octant |
-| **F** | Contract worker, high obligations, paycheck-to-paycheck | Variable·Obligated·Tight | Contractual/casual + high debt + no savings | BSP: 19.6% seasonal income; 29.3% debt; 16.4% past-due bills; no emergency fund | Yes — canonical octant |
+| **F** | Contract worker, high obligations, paycheck-to-paycheck | Variable·Obligated·At-Risk | Contractual/casual + high debt + no savings | BSP: 19.6% seasonal income; 29.3% debt; 16.4% past-due bills; no emergency fund | Yes — canonical octant |
 | **G** | Freelancer, low obligations, healthy emergency fund | Variable·Flexible·Tolerant | Irregular income + no debt + strong savings | BSP: 32.7% entrepreneurial; low debt; 2.0% have 3+ months (top tier); high risk tolerance | Yes — canonical octant |
-| **H** | Irregular earner, variable income, no emergency fund | Variable·Flexible·Tight | Informal income + no debt + no savings | BSP: 22.1% remittances; informal sector; no deposit account; minimal financial services | Yes — canonical octant |
-| **I** | Recovering from financial shock | Variable·Obligated·Tight | Recently re-employed + depleted savings + debt from unemployment | BSP: 16.4% past-due bills; 29.3% debt; emergency credit during job loss; transitional state | Yes — edge case (shares octant with F; distinguished by temporal trajectory) |
-| **J** | Variable income, low obligations, borderline tolerance | Variable·Flexible·Tight | Part-time + occasional income + borderline savings | BSP: 19.6% seasonal; borderline emergency fund (2.5 months); low debt | Yes — edge case (borderline Tolerant/Tight threshold) |
+| **H** | Irregular earner, variable income, no emergency fund | Variable·Flexible·At-Risk | Informal income + no debt + no savings | BSP: 22.1% remittances; informal sector; no deposit account; minimal financial services | Yes — canonical octant |
+| **I** | Recovering from financial shock | Variable·Obligated·At-Risk | Recently re-employed + depleted savings + debt from unemployment | BSP: 16.4% past-due bills; 29.3% debt; emergency credit during job loss; transitional state | Yes — edge case (shares octant with F; distinguished by temporal trajectory) |
+| **J** | Variable income, low obligations, borderline tolerance | Variable·Flexible·At-Risk | Part-time + occasional income + borderline savings | BSP: 19.6% seasonal; borderline emergency fund (2.5 months); low debt | Yes — edge case (borderline Tolerant/At-Risk threshold) |
 | **K** | Stable income, high obligations approaching threshold | Stable·Obligated·Tolerant | Regular salaried + mortgage/car loan + moderate savings | BSP: 69.9% residential property ownership; 29.3% debt; obligation ratio near 0.6 threshold | Yes — edge case (obligation ratio near threshold boundary) |
-| **L** | Stable income, no savings habit | Stable·Flexible·Tight | Regular salaried + low debt + no savings despite stable income | BSP: 35.3% deposit account; discretionary spending > savings; no emergency fund | Yes — edge case (challenges "stable = healthy" assumption) |
+| **L** | Stable income, no savings habit | Stable·Flexible·At-Risk | Regular salaried + low debt + no savings despite stable income | BSP: 35.3% deposit account; discretionary spending > savings; no emergency fund | Yes — edge case (challenges "stable = healthy" assumption) |
 
 ### 3.3 Edge-Case vs Canonical Distinction
 
 The 8 canonical archetypes (A–H) map one-to-one to the 8 PFP octants. The 4 edge-case archetypes (I–L) each share an octant with a canonical archetype but are distinguished by:
 
-- **I** (shares Variable·Obligated·Tight with F): Temporal trajectory — recovering from financial shock rather than chronically paycheck-to-paycheck
+- **I** (shares Variable·Obligated·At-Risk with F): Temporal trajectory — recovering from financial shock rather than chronically paycheck-to-paycheck
 - **J** (shares Variable·Flexible·ight with H): Borderline threshold — financial tolerance near the 3-month boundary, not chronically zero
 - **K** (shares Stable·Obligated·Tolerant with A): Threshold proximity — obligation ratio near the 0.6 boundary, not deep into Obligated territory
-- **L** (shares Stable·Flexible·Tight with D): Behavioral distinction — stable income but deliberately low savings, not low-income with minimal savings
+- **L** (shares Stable·Flexible·At-Risk with D): Behavioral distinction — stable income but deliberately low savings, not low-income with minimal savings
 
 For Classifier training, all 12 archetypes resolve to one of the 8 PFP octants. Edge cases are included in training (not excluded) because they represent realistic within-octant variation that the Classifier must handle. The deterministic ground-truth formula labels them by their octant, regardless of edge-case status.
 

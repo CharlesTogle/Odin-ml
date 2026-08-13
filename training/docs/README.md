@@ -10,7 +10,7 @@
 | **4. Exploratory Data Analysis** | Complete | EDA report, plots, class balance, correlations, data quality | `4_eda/eda_report.md` |
 | **4.5. Dimension & Threshold Discovery** | Complete | Dimension threshold candidates, clustering analysis, binary split validation | `4.5_dimension-threshold-discovery/` |
 | **5. Feature Engineering** | Complete | 17 derived features, cyclical encoding, interaction features, feature selection, PCA | `5_feature-engineering/` |
-| **6. Model Training** | Complete | PFP (Tier 0–4), Forecaster (RF + PyTorch LSTM/GRU/BiLSTM), Anomaly (IF + AE) | `6_model-training/` |
+| **6. Model Training** | Complete | PFP (Tier 0–4), Forecaster (RF selected; PyTorch LSTM/GRU/BiLSTM tiers implemented, not selected), Anomaly (IF + AE) | `6_model-training/` |
 | **7. Model Evaluation** | Partial | PFP/Forecaster/Anomaly evaluation JSONs + reports | `6_model-training/`, `training/models/*/evaluation.json` |
 | **9. Deployment** | Partial | Serving API + budget optimizer stubbed; containerization/CI-CD pending | `1_problem-statement/deployment-architecture.md` |
 | **10. Model Monitoring** | Pending | Drift detection, retraining triggers | — |
@@ -38,10 +38,11 @@ docs/
 │  ├─ roc-cutoff-selection.md            # Threshold calibration for PFP
 │  ├─ bsp-fies-crosswalk.md              # BSP CFS ↔ FIES NCR field mapping + archetype justification
 │  ├─ synthetic-injection-rules.md       # Rules for FIES→Persona→Transaction generation
-│  └─ persona-validation-list.md         # 12 archetypes (A-L) for SME review
+│  ├─ persona-validation-list.md         # 12 archetypes (A-L) for SME review
+│  └─ persona-validation-list-SME-draft.md # SME review draft of the archetype roster
 ├─ 2_data-collection/
 │  ├─ README.md                          # Phase 2 in-depth guide
-│  └─ FIES Dictionary & Valueset.csv     # FIES variable ID mapping
+│  └─ dictionary-and-valueset.xlsx       # FIES variable ID mapping
 ├─ 3_data-preprocessing/
 │  ├─ README.md                          # Phase 3 in-depth guide
 │  └─ preprocessing.md                   # Preprocessing pipeline documentation
@@ -126,5 +127,4 @@ docs/
 
 - Persona source count 300 vs. 12,000 generated personas (see `training/TODO.md`).
 - PFP per-class zero support for some labels (labeling artifact of synth data).
-- Training artifacts built with scikit-learn 1.9.0; serving venv has 1.8.0 (warnings, non-fatal).
-- System spec targets Python 3.14; runtime pinned to 3.13.14.
+- Python and scikit-learn pins now aligned with the spec and training artifacts: Python 3.14.4 (`.python-version`), scikit-learn 1.9.0 (`requirements.txt`). Rebuild the venv under these pins if it predates 2026-08-13.

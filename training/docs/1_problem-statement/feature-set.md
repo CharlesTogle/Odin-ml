@@ -365,10 +365,10 @@ def validate_features(X, feature_names):
 
 | Output | Description | Location |
 |--------|-------------|----------|
-| `feature_set.md` | This document | `docs/prerequisites/` |
-| `feature_importance.csv` | Importance scores per feature | `docs/prerequisites/` |
-| `feature_ranges.json` | Valid ranges per feature | `docs/prerequisites/` |
-| `normalization_params.json` | Scaler parameters | `docs/prerequisites/` |
+| `feature_set.md` | This document | `1_problem-statement/` |
+| `feature_importance.csv` | Importance scores per feature | `1_problem-statement/` |
+| `feature_ranges.json` | Valid ranges per feature | `1_problem-statement/` |
+| `normalization_params.json` | Scaler parameters | `1_problem-statement/` |
 
 ---
 

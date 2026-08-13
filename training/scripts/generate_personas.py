@@ -8,7 +8,7 @@ as defined in persona-validation-list-SME-draft.md.
 Thresholds (provisional, pending SME validation):
   - Stability: CV < 0.5 = Stable, CV >= 0.5 = Variable
   - Obligation: ratio > 0.6 = Obligated, ratio <= 0.6 = Flexible
-  - Tolerance: runway >= 3 months = Tolerant, runway < 3 months = Tight
+  - Tolerance: runway >= 3 months = Tolerant, runway < 3 months = At-Risk
 
 Uses FIES variable IDs (TOINC, FOOD, etc.) for column access.
 See: Odin-Paper/Model/2_Data Collection/FIES Dictionary & Valueset.csv
@@ -51,18 +51,18 @@ class PersonaGenerationError(Exception):
 
 STABILITY_CV_THRESHOLD = 0.5    # CV < 0.5 = Stable, >= 0.5 = Variable
 OBLIGATION_RATIO_THRESHOLD = 0.6  # ratio > 0.6 = Obligated, <= 0.6 = Flexible
-TOLERANCE_RUNWAY_MONTHS = 3.0   # runway >= 3 months = Tolerant, < 3 = Tight
+TOLERANCE_RUNWAY_MONTHS = 3.0   # runway >= 3 months = Tolerant, < 3 = At-Risk
 
 # 8 PFP classes (2 x 2 x 2)
 PFP_CLASSES = [
     "Stable/Flexible/Tolerant",
-    "Stable/Flexible/Tight",
+    "Stable/Flexible/At-Risk",
     "Stable/Obligated/Tolerant",
-    "Stable/Obligated/Tight",
+    "Stable/Obligated/At-Risk",
     "Variable/Flexible/Tolerant",
-    "Variable/Flexible/Tight",
+    "Variable/Flexible/At-Risk",
     "Variable/Obligated/Tolerant",
-    "Variable/Obligated/Tight",
+    "Variable/Obligated/At-Risk",
 ]
 
 
@@ -105,7 +105,7 @@ ARCHETYPES = [
         description="Regular BPO employee, 2yr tenure, consistent salary with minor overtime variation. Single, no dependents. CFS: top 2% for emergency runway.",
         expected_pfp="Stable/Obligated/Tolerant",
     ),
-    # B: Stable / Obligated / Tight
+    # B: Stable / Obligated / At-Risk
     PersonaArchetype(
         archetype_id="B",
         name="Manufacturing Worker, Heavy Obligations, No Savings",
@@ -117,7 +117,7 @@ ARCHETYPES = [
         household_size=(3, 4),
         employment_type="full_time",
         description="Regular manufacturing employee, 5yr tenure. Married, 1 child. Entire paycheck goes to obligations. CFS: typical debt profile.",
-        expected_pfp="Stable/Obligated/Tight",
+        expected_pfp="Stable/Obligated/At-Risk",
     ),
     # C: Stable / Flexible / Tolerant
     PersonaArchetype(
@@ -133,7 +133,7 @@ ARCHETYPES = [
         description="Regular tech company employee, 3yr tenure. Single, lives with parents (no rent). High savings rate. CFS: top 2% for financial health.",
         expected_pfp="Stable/Flexible/Tolerant",
     ),
-    # D: Stable / Flexible / Tight
+    # D: Stable / Flexible / At-Risk
     PersonaArchetype(
         archetype_id="D",
         name="Government Employee, Low Obligations, Minimal Savings",
@@ -145,7 +145,7 @@ ARCHETYPES = [
         household_size=(1, 2),
         employment_type="full_time",
         description="Government agency employee, 4yr tenure. Very consistent salary. Single. Spends discretionary freely. CFS: typical digital services user.",
-        expected_pfp="Stable/Flexible/Tight",
+        expected_pfp="Stable/Flexible/At-Risk",
     ),
     # E: Variable / Obligated / Tolerant
     PersonaArchetype(
@@ -161,7 +161,7 @@ ARCHETYPES = [
         description="Freelance graphic designer, 3yr self-employed. 3 retainer clients. Income varies monthly. CFS: above-average financial risk tolerance.",
         expected_pfp="Variable/Obligated/Tolerant",
     ),
-    # F: Variable / Obligated / Tight
+    # F: Variable / Obligated / At-Risk
     PersonaArchetype(
         archetype_id="F",
         name="Contract Worker, High Obligations, Paycheck-to-Paycheck",
@@ -173,7 +173,7 @@ ARCHETYPES = [
         household_size=(2, 3),
         employment_type="informal",
         description="Fixed-term construction contracts. Income gaps between contracts. Married, spouse part-time vendor. CFS: below-average deposit ownership.",
-        expected_pfp="Variable/Obligated/Tight",
+        expected_pfp="Variable/Obligated/At-Risk",
     ),
     # G: Variable / Flexible / Tolerant
     PersonaArchetype(
@@ -189,7 +189,7 @@ ARCHETYPES = [
         description="Freelance content writer + part-time VA, 2yr self-employed. Built reserves in high-earning months. CFS: top 2% for financial resilience.",
         expected_pfp="Variable/Flexible/Tolerant",
     ),
-    # H: Variable / Flexible / Tight
+    # H: Variable / Flexible / At-Risk
     PersonaArchetype(
         archetype_id="H",
         name="Tricycle Driver/Vendor, No Emergency Fund",
@@ -201,9 +201,9 @@ ARCHETYPES = [
         household_size=(1, 2),
         employment_type="gig_worker",
         description="Part-time tricycle driver and occasional market vendor. No formal contract. Highly variable daily income. CFS: typical low-income profile.",
-        expected_pfp="Variable/Flexible/Tight",
+        expected_pfp="Variable/Flexible/At-Risk",
     ),
-    # I: Variable / Obligated / Tight (edge case — recovering)
+    # I: Variable / Obligated / At-Risk (edge case — recovering)
     PersonaArchetype(
         archetype_id="I",
         name="Recovering from Financial Shock, Depleted Savings",
@@ -215,9 +215,9 @@ ARCHETYPES = [
         household_size=(2, 3),
         employment_type="full_time",
         description="Recently re-employed (3mo tenure). Laid off 4mo ago, depleted savings. Married, spouse also re-employed. CFS: transitional financial shock.",
-        expected_pfp="Variable/Obligated/Tight",
+        expected_pfp="Variable/Obligated/At-Risk",
     ),
-    # J: Variable / Flexible / Tight (edge case — borderline tolerance)
+    # J: Variable / Flexible / At-Risk (edge case — borderline tolerance)
     PersonaArchetype(
         archetype_id="J",
         name="Part-time Sales + Online Selling, Borderline Tolerance",
@@ -229,7 +229,7 @@ ARCHETYPES = [
         household_size=(1, 2),
         employment_type="sales",
         description="Part-time mall sales associate + occasional online selling. Low obligations but inconsistent savings. CFS: typical young adult profile.",
-        expected_pfp="Variable/Flexible/Tight",
+        expected_pfp="Variable/Flexible/At-Risk",
     ),
     # K: Stable / Obligated / Tolerant (edge case — near threshold)
     PersonaArchetype(
@@ -245,7 +245,7 @@ ARCHETYPES = [
         description="Telecom employee, 4yr tenure. Married (spouse freelance tutor), 1 child. Obligations near threshold. CFS: mortgage + car loan typical.",
         expected_pfp="Stable/Obligated/Tolerant",
     ),
-    # L: Stable / Flexible / Tight (edge case — no savings habit)
+    # L: Stable / Flexible / At-Risk (edge case — no savings habit)
     PersonaArchetype(
         archetype_id="L",
         name="Marketing Agency, No Savings Habit Despite Stable Income",
@@ -257,7 +257,7 @@ ARCHETYPES = [
         household_size=(1, 1),
         employment_type="full_time",
         description="Marketing agency employee, 2yr tenure. Single, rents studio. Spends discretionary freely, no buffer. CFS: typical discretionary spender.",
-        expected_pfp="Stable/Flexible/Tight",
+        expected_pfp="Stable/Flexible/At-Risk",
     ),
 ]
 
@@ -500,7 +500,7 @@ def _compute_pfp_label(
     """Compute 8-class PFP label from three binary dimensions."""
     stability = "Stable" if income_cv < STABILITY_CV_THRESHOLD else "Variable"
     obligation = "Obligated" if obligation_ratio > OBLIGATION_RATIO_THRESHOLD else "Flexible"
-    tolerance = "Tolerant" if runway_months >= TOLERANCE_RUNWAY_MONTHS else "Tight"
+    tolerance = "Tolerant" if runway_months >= TOLERANCE_RUNWAY_MONTHS else "At-Risk"
     return f"{stability}/{obligation}/{tolerance}"
 
 

@@ -6,7 +6,7 @@
 **Status:** Draft
 **Companion Documents:** `bsp-fies-crosswalk.md`, `synthetic-injection-rules.md`
 
-> **v1.4 change:** Confirms the 8-class output contract (prediction + income stability / obligation weight / financial tolerance scores + confidence + `status`) and the two classification modes `STANDARD` / `QUESTIONNAIRE`. No `ENSEMBLE` mode exists in the system spec or the training pipeline.
+> **v1.4 change:** Confirms the 8-class output contract (prediction + financial stability / financial weight / financial tolerance scores + confidence + `status`) and the two classification modes `STANDARD` / `QUESTIONNAIRE`. No `ENSEMBLE` mode exists in the system spec or the training pipeline.
 
 ---
 
@@ -14,7 +14,7 @@
 *This section is non-negotiable and pre-defines the module's API boundaries. The rest of the document serves to realize this contract.*
 
 ### 0.1. Module Function
-*Classifies a user's Personal Financial Profile (PFP) into one of eight categories (Stable-Flexible-Tolerant, Stable-Flexible-Tight, Stable-Obligated-Tolerant, Stable-Obligated-Tight, Variable-Flexible-Tolerant, Variable-Flexible-Tight, Variable-Obligated-Tolerant, Variable-Obligated-Tight), by selecting and running the best-performing classification algorithm against whatever transaction history currently exists for that user, including partial, short-window, or self-logged data of inconsistent quality.*
+*Classifies a user's Personal Financial Profile (PFP) into one of eight categories (Stable-Flexible-Tolerant, Stable-Flexible-At-Risk, Stable-Obligated-Tolerant, Stable-Obligated-At-Risk, Variable-Flexible-Tolerant, Variable-Flexible-At-Risk, Variable-Obligated-Tolerant, Variable-Obligated-At-Risk), by selecting and running the best-performing classification algorithm against whatever transaction history currently exists for that user, including partial, short-window, or self-logged data of inconsistent quality.*
 
 ### 0.2. Strict Input Contract (What the module receives)
 - **Structure:** JSON
@@ -41,8 +41,8 @@
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `prediction` | String | One of: `STABLE_FLEXIBLE_TOLERANT`, `STABLE_FLEXIBLE_AT_RISK`, `STABLE_OBLIGATED_TOLERANT`, `STABLE_OBLIGATED_AT_RISK`, `VARIABLE_FLEXIBLE_TOLERANT`, `VARIABLE_FLEXIBLE_AT_RISK`, `VARIABLE_OBLIGATED_TOLERANT`, `VARIABLE_OBLIGATED_AT_RISK` |
-| `income_stability_score` | Float | Calibrated score between 0 and 1 |
-| `obligation_weight_score` | Float | Calibrated score between 0 and 1 |
+| `financial_stability_score` | Float | Calibrated score between 0 and 1 |
+| `financial_weight_score` | Float | Calibrated score between 0 and 1 |
 | `financial_tolerance_score` | Float | Calibrated score between 0 and 1 |
 | `confidence` | Float | Calibrated confidence score between 0 and 1 |
 | `status` | String | `SUCCESS`, `FAILURE`, or `FALLBACK` |
@@ -60,7 +60,7 @@
 ## 1. Problem Statement (Scope, Objectives, and KPIs)
 *Define the predictive problem in purely statistical/mathematical terms. Be agnostic about *how* to solve it.*
 
-- **Core Problem:** Multi-class classification with 8 balanced classes (Stable-Flexible-Tolerant, Stable-Flexible-Tight, Stable-Obligated-Tolerant, Stable-Obligated-Tight, Variable-Flexible-Tolerant, Variable-Flexible-Tight, Variable-Obligated-Tolerant, Variable-Obligated-Tight), derived from three binary dimensions (income stability, obligation weight, and financial tolerance). The research question this module answers is: given partial-window, noisy, or inconsistently self-logged transaction data, which classification algorithm — trained to approximate that same label from indirect and partial signals — most reliably reproduces the ground-truth class a full, clean 3-month history would eventually yield?
+- **Core Problem:** Multi-class classification with 8 balanced classes (Stable-Flexible-Tolerant, Stable-Flexible-At-Risk, Stable-Obligated-Tolerant, Stable-Obligated-At-Risk, Variable-Flexible-Tolerant, Variable-Flexible-At-Risk, Variable-Obligated-Tolerant, Variable-Obligated-At-Risk), derived from three binary dimensions (income stability, obligation weight, and financial tolerance). The research question this module answers is: given partial-window, noisy, or inconsistently self-logged transaction data, which classification algorithm — trained to approximate that same label from indirect and partial signals — most reliably reproduces the ground-truth class a full, clean 3-month history would eventually yield?
 
 - **Stakeholders:** The PFP Module consumes the output for profile assignment and drift detection.
 
@@ -86,7 +86,7 @@
 - **Minimum Viable Dataset Size:** 
   - At least 500 labeled personas per class (4,000 total for 8 classes), each with a full 3-month "mature" transaction history for ground-truth label derivation
   - Each mature persona additionally sampled at multiple partial-window cuts (e.g., first 2 weeks, first 4 weeks, first 6 weeks) to train and evaluate candidates under the realistic partial-data condition described in Section 1
-  - Explicit persona-generation targets set per PFP octant to avoid underrepresenting classes likely to be rarer in the general population (e.g., Variable-Obligated-Tight)
+  - Explicit persona-generation targets set per PFP octant to avoid underrepresenting classes likely to be rarer in the general population (e.g., Variable-Obligated-At-Risk)
   - **[NOTE]** If BSP segment analysis confirms one or more edge-case archetypes (beyond the 8 octants), this module's ground-truth formula must state whether such personas resolve to their nearest octant or are excluded from Classifier training entirely (they may still be valid Forecaster/Anomaly Detector personas). See `bsp-fies-crosswalk.md` §3.3.
 
 - **Labeling Strategy:** 
@@ -226,7 +226,7 @@
 
 - **Confusion Matrix Analysis:** 
   - Specifically analyze false-positive rates (misclassifying as Stable vs. Variable)
-  - Analyze misclassifications between same-income-dimension classes (e.g., Stable-Flexible-Tolerant vs. Stable-Flexible-Tight — same income and obligation, different tolerance)
+  - Analyze misclassifications between same-income-dimension classes (e.g., Stable-Flexible-Tolerant vs. Stable-Flexible-At-Risk — same income and obligation, different tolerance)
   - Analyze misclassifications between same-obligation-dimension classes (e.g., Stable-Flexible-Tolerant vs. Stable-Obligated-Tolerant — same income and tolerance, different obligation)
 
 - **Pre-registered outcome framing:** This evaluation is a hypothesis test, not a search for a foregone conclusion. Either result is a valid, reportable contribution: (a) a learned tier beats Tier 1 by a pre-registered margin under partial/noisy data, supporting the case for a learned classifier; or (b) no learned tier clears that margin, in which case Tier 1 (the deterministic rule) is selected as the module's final design, and the finding — that a well-calibrated deterministic rule is sufficient for this problem — is documented as the module's actual result rather than treated as an incomplete experiment. The 8-class PFP structure (3 binary dimensions) increases the difficulty relative to the original 4-class formulation, making the Tier 1 vs. learned comparison even more informative.

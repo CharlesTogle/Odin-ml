@@ -29,7 +29,7 @@ This document defines the deterministic rules for transforming PSA 2023 FIES NCR
 
 - **12,000 synthetic users** (12 archetypes × 1,000 each)
 - **365 days of transaction history** per user
-- **8 PFP labels** per user (Stable/Obligated/Tolerant, Stable/Obligated/Tight, Stable/Flexible/Tolerant, Stable/Flexible/Tight, Variable/Obligated/Tolerant, Variable/Obligated/Tight, Variable/Flexible/Tolerant, Variable/Flexible/Tight)
+- **8 PFP labels** per user (Stable/Obligated/Tolerant, Stable/Obligated/At-Risk, Stable/Flexible/Tolerant, Stable/Flexible/At-Risk, Variable/Obligated/Tolerant, Variable/Obligated/At-Risk, Variable/Flexible/Tolerant, Variable/Flexible/At-Risk)
 - **Questionnaire responses** per user (for QUESTIONNAIRE mode training)
 
 ### 1.3 Data Source Calibration
@@ -123,13 +123,13 @@ This document defines the deterministic rules for transforming PSA 2023 FIES NCR
 | PFP Cell | CV Range | Obligated Ratio | Runway | Likely FIES NCR Decile | Income Range (Monthly) | FIES NCR Reference |
 |----------|----------|-----------------|--------|------------------------|------------------------|-------------------|
 | **Stable/Obligated/Tolerant** | < 0.5 | > 0.6 | ≥ 3 mo | D3–D6 | ₱25,000 – ₱55,000 | Median: ₱33,156/mo |
-| **Stable/Obligated/Tight** | < 0.5 | > 0.6 | < 3 mo | D3–D5 | ₱20,000 – ₱35,000 | Mean: ₱41,884/mo |
+| **Stable/Obligated/At-Risk** | < 0.5 | > 0.6 | < 3 mo | D3–D5 | ₱20,000 – ₱35,000 | Mean: ₱41,884/mo |
 | **Stable/Flexible/Tolerant** | < 0.5 | ≤ 0.6 | ≥ 3 mo | D6–D9 | ₱40,000 – ₱70,000 | P75: ₱49,075/mo |
-| **Stable/Flexible/Tight** | < 0.5 | ≤ 0.6 | < 3 mo | D5–D7 | ₱25,000 – ₱50,000 | P25: ₱23,313/mo |
+| **Stable/Flexible/At-Risk** | < 0.5 | ≤ 0.6 | < 3 mo | D5–D7 | ₱25,000 – ₱50,000 | P25: ₱23,313/mo |
 | **Variable/Obligated/Tolerant** | ≥ 0.5 | > 0.6 | ≥ 3 mo | D4–D7 | ₱20,000 – ₱60,000 | Mean: ₱41,884/mo |
-| **Variable/Obligated/Tight** | ≥ 0.5 | > 0.6 | < 3 mo | D1–D4 | ₱5,000 – ₱40,000 | Min: varies |
+| **Variable/Obligated/At-Risk** | ≥ 0.5 | > 0.6 | < 3 mo | D1–D4 | ₱5,000 – ₱40,000 | Min: varies |
 | **Variable/Flexible/Tolerant** | ≥ 0.5 | ≤ 0.6 | ≥ 3 mo | D5–D8 | ₱15,000 – ₱45,000 | Median: ₱33,156/mo |
-| **Variable/Flexible/Tight** | ≥ 0.5 | ≤ 0.6 | < 3 mo | D1–D4 | ₱5,000 – ₱20,000 | P25: ₱23,313/mo |
+| **Variable/Flexible/At-Risk** | ≥ 0.5 | ≤ 0.6 | < 3 mo | D1–D4 | ₱5,000 – ₱20,000 | P25: ₱23,313/mo |
 
 > **Note:** Income ranges calibrated to FIES NCR 2023 decile distribution. The 8-class system adds a Tolerance dimension (runway months) not present in the earlier 4-class version. FIES NCR reference values: Mean ₱41,884/mo, Median ₱33,156/mo, P25 ₱23,313/mo, P75 ₱49,075/mo.
 
@@ -157,17 +157,17 @@ Financial parameters calibrated to FIES NCR 2023; behavioral patterns calibrated
 | Archetype | PFP Cell | Employment | Income CV | Obligation Ratio | Runway (mo) | Household | Income Range (Monthly) | Key Characteristics |
 |-----------|----------|------------|-----------|------------------|-------------|-----------|------------------------|---------------------|
 | **A** | Stable/Obligated/Tolerant | Full-time BPO | 0.10 | 0.70 | 5.0 | 1–2 | ₱35,000–₱45,000 | Consistent salary, moderate obligations, healthy emergency fund (CFS: top 2% for runway) |
-| **B** | Stable/Obligated/Tight | Full-time Manufacturing | 0.15 | 0.85 | 0.5 | 3–4 | ₱25,000–₱35,000 | Heavy family obligations, no savings buffer (CFS: typical debt profile) |
+| **B** | Stable/Obligated/At-Risk | Full-time Manufacturing | 0.15 | 0.85 | 0.5 | 3–4 | ₱25,000–₱35,000 | Heavy family obligations, no savings buffer (CFS: typical debt profile) |
 | **C** | Stable/Flexible/Tolerant | Full-time Tech | 0.08 | 0.45 | 9.0 | 1 | ₱55,000–₱70,000 | Low obligations, strong savings, lives with parents (CFS: top 2% for financial health) |
-| **D** | Stable/Flexible/Tight | Full-time Government | 0.12 | 0.50 | 1.5 | 1–2 | ₱30,000–₱40,000 | Consistent salary, spends discretionary freely (CFS: typical digital services user) |
+| **D** | Stable/Flexible/At-Risk | Full-time Government | 0.12 | 0.50 | 1.5 | 1–2 | ₱30,000–₱40,000 | Consistent salary, spends discretionary freely (CFS: typical digital services user) |
 | **E** | Variable/Obligated/Tolerant | Freelance | 0.70 | 0.75 | 4.0 | 1–2 | ₱25,000–₱60,000 | Irregular income, adequate savings buffer (CFS: above-average financial risk tolerance) |
-| **F** | Variable/Obligated/Tight | Informal/Contract | 0.65 | 0.80 | 0.3 | 2–3 | ₱18,000–₱40,000 | Paycheck-to-paycheck, income gaps (CFS: below-average deposit ownership) |
+| **F** | Variable/Obligated/At-Risk | Informal/Contract | 0.65 | 0.80 | 0.3 | 2–3 | ₱18,000–₱40,000 | Paycheck-to-paycheck, income gaps (CFS: below-average deposit ownership) |
 | **G** | Variable/Flexible/Tolerant | Freelance Writer/VA | 0.60 | 0.40 | 7.0 | 1–2 | ₱20,000–₱45,000 | Irregular income, built reserves in high months (CFS: top 2% for financial resilience) |
-| **H** | Variable/Flexible/Tight | Gig Worker | 0.80 | 0.45 | 1.0 | 1–2 | ₱8,000–₱20,000 | Tricycle driver/vendor, no emergency fund (CFS: typical low-income profile) |
-| **I** | Variable/Obligated/Tight | Full-time (re-employed) | 0.70 | 0.78 | 0.8 | 2–3 | ₱20,000–₱35,000 | Recovering from job loss, depleted savings (CFS: transitional financial shock) |
-| **J** | Variable/Flexible/Tight | Part-time Sales | 0.55 | 0.55 | 2.5 | 1–2 | ₱15,000–₱30,000 | Low obligations, borderline tolerance (CFS: typical young adult profile) |
+| **H** | Variable/Flexible/At-Risk | Gig Worker | 0.80 | 0.45 | 1.0 | 1–2 | ₱8,000–₱20,000 | Tricycle driver/vendor, no emergency fund (CFS: typical low-income profile) |
+| **I** | Variable/Obligated/At-Risk | Full-time (re-employed) | 0.70 | 0.78 | 0.8 | 2–3 | ₱20,000–₱35,000 | Recovering from job loss, depleted savings (CFS: transitional financial shock) |
+| **J** | Variable/Flexible/At-Risk | Part-time Sales | 0.55 | 0.55 | 2.5 | 1–2 | ₱15,000–₱30,000 | Low obligations, borderline tolerance (CFS: typical young adult profile) |
 | **K** | Stable/Obligated/Tolerant | Full-time Telecom | 0.10 | 0.65 | 4.0 | 3–4 | ₱45,000–₱55,000 | Obligations near threshold, edge case (CFS: mortgage + car loan typical) |
-| **L** | Stable/Flexible/Tight | Full-time Marketing | 0.10 | 0.50 | 1.0 | 1 | ₱35,000–₱50,000 | No savings habit despite stable income (CFS: typical discretionary spender) |
+| **L** | Stable/Flexible/At-Risk | Full-time Marketing | 0.10 | 0.50 | 1.0 | 1 | ₱35,000–₱50,000 | No savings habit despite stable income (CFS: typical discretionary spender) |
 
 > **Note:** Income Stability is derived from income *consistency* (coefficient of variation), not income *magnitude*. Thresholds: CV < 0.5 = Stable, ratio > 0.6 = Obligated, runway ≥ 3 months = Tolerant. See `generate_personas.py` for implementation. Archetypes I–L are edge cases that exercise boundary conditions within their cells. Income ranges calibrated to FIES NCR 2023 decile distribution; behavioral patterns calibrated to BSP CFS 2021.
 
@@ -493,7 +493,7 @@ runway_months = balance / avg_monthly_expense if avg_monthly_expense > 0 else 0.
 # Assign 3-dimension PFP label
 stability = "Stable" if cv < STABILITY_CV_THRESHOLD else "Variable"
 obligation = "Obligated" if obligation_ratio > OBLIGATION_RATIO_THRESHOLD else "Flexible"
-tolerance = "Tolerant" if runway_months >= TOLERANCE_RUNWAY_MONTHS else "Tight"
+tolerance = "Tolerant" if runway_months >= TOLERANCE_RUNWAY_MONTHS else "At-Risk"
 pfp_label = f"{stability}/{obligation}/{tolerance}"
 
 # Inject as label
@@ -509,7 +509,7 @@ persona.label = pfp_label
 # Current thresholds (SME draft, to be refined with real data):
 STABILITY_CV_THRESHOLD = 0.5    # Stable if CV < 0.5, Variable if CV >= 0.5
 OBLIGATION_RATIO_THRESHOLD = 0.6  # Obligated if ratio > 0.6, Flexible if ratio <= 0.6
-TOLERANCE_RUNWAY_MONTHS = 3.0   # Tolerant if runway >= 3 months, Tight if runway < 3 months
+TOLERANCE_RUNWAY_MONTHS = 3.0   # Tolerant if runway >= 3 months, At-Risk if runway < 3 months
 ```
 
 ---

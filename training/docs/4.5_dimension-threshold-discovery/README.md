@@ -45,9 +45,9 @@ Flag/fix the Phase 2 archetype table's use of "Income Level: High/Low" as a prox
 |--------|----------|-------------|
 | `dimension_discovery.py` | `scripts/` | Clustering analysis + new feature computation script |
 | `dimension-threshold-candidates.md` | `docs/4.5_dimension-threshold-discovery/` | Proposed thresholds with rationale |
-| Updated `feature-set.md` | `docs/prerequisites/` | Add Financial Trajectory and Financial Margin feature definitions |
-| Updated `persona-validation-list.md` | `docs/prerequisites/` | Guidance that personas should vary across Trajectory/Margin combinations within each PFP quadrant |
-| Updated `TODO-MDD-Gaps.md` | `docs/prerequisites/` | Log remaining open gap: final threshold values pending SME review + clustering analysis |
+| Updated `feature-set.md` | `1_problem-statement/` | Add Financial Trajectory and Financial Margin feature definitions |
+| Updated `persona-validation-list.md` | `1_problem-statement/` | Guidance that personas should vary across Trajectory/Margin combinations within each PFP quadrant |
+| Log remaining open gaps | `training/TODO.md` | Open task: final threshold values pending SME review + clustering analysis |
 
 ## Pipeline Integration
 

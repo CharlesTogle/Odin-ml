@@ -34,7 +34,7 @@ def test_pfp_questionnaire_classify(client):
     resp = client.post("/api/v1/pfp/classify", json=payload)
     assert resp.status_code == 200
     classification = resp.json()["classification"]
-    assert classification["prediction"] == "Variable/Obligated/Tight"
+    assert classification["prediction"] == "Variable/Obligated/At-Risk"
     assert classification["status"] == "SUCCESS"
 
 

@@ -15,13 +15,13 @@ This phase trains the **Personal Financial Profile (PFP) Classifier** — a mult
 | Class | Income Stability | Obligation Weight | Financial Tolerance |
 |-------|-----------------|-------------------|---------------------|
 | Stable/Flexible/Tolerant | Stable (CV < threshold) | Flexible (ratio ≤ threshold) | Tolerant (runway ≥ threshold) |
-| Stable/Flexible/Tight | Stable (CV < threshold) | Flexible (ratio ≤ threshold) | Tight (runway < threshold) |
+| Stable/Flexible/At-Risk | Stable (CV < threshold) | Flexible (ratio ≤ threshold) | At-Risk (runway < threshold) |
 | Stable/Obligated/Tolerant | Stable (CV < threshold) | Obligated (ratio > threshold) | Tolerant (runway ≥ threshold) |
-| Stable/Obligated/Tight | Stable (CV < threshold) | Obligated (ratio > threshold) | Tight (runway < threshold) |
+| Stable/Obligated/At-Risk | Stable (CV < threshold) | Obligated (ratio > threshold) | At-Risk (runway < threshold) |
 | Variable/Flexible/Tolerant | Variable (CV ≥ threshold) | Flexible (ratio ≤ threshold) | Tolerant (runway ≥ threshold) |
-| Variable/Flexible/Tight | Variable (CV ≥ threshold) | Flexible (ratio ≤ threshold) | Tight (runway < threshold) |
+| Variable/Flexible/At-Risk | Variable (CV ≥ threshold) | Flexible (ratio ≤ threshold) | At-Risk (runway < threshold) |
 | Variable/Obligated/Tolerant | Variable (CV ≥ threshold) | Obligated (ratio > threshold) | Tolerant (runway ≥ threshold) |
-| Variable/Obligated/Tight | Variable (CV ≥ threshold) | Obligated (ratio > threshold) | Tight (runway < threshold) |
+| Variable/Obligated/At-Risk | Variable (CV ≥ threshold) | Obligated (ratio > threshold) | At-Risk (runway < threshold) |
 
 The training follows the **pre-registered outcome framing** from MDD §7: this is a hypothesis test comparing Tier 1 (rule-based) against learned tiers (Tier 2-4), with a pre-registered margin of 2 points Macro-F1.
 

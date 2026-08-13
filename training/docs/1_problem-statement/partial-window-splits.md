@@ -268,10 +268,10 @@ def leave_one_out_split(personas):
 
 | Output | Description | Location |
 |--------|-------------|----------|
-| `train_personas.json` | Training persona IDs and labels | `docs/prerequisites/` |
-| `val_personas.json` | Validation persona IDs and labels | `docs/prerequisites/` |
-| `test_personas.json` | Test persona IDs and labels | `docs/prerequisites/` |
-| `split_statistics.md` | Class distribution per split | `docs/prerequisites/` |
+| `train_personas.json` | Training persona IDs and labels | `1_problem-statement/` |
+| `val_personas.json` | Validation persona IDs and labels | `1_problem-statement/` |
+| `test_personas.json` | Test persona IDs and labels | `1_problem-statement/` |
+| `split_statistics.md` | Class distribution per split | `1_problem-statement/` |
 
 ---
 

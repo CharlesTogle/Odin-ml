@@ -62,18 +62,18 @@ The Budget Optimizer is a constraint-optimization module (LP via `scipy.linprog`
 
 ## Tech Stack
 
-- Python `3.13.14` (runtime pinned by `.python-version`; the thesis system spec targets Python 3.14 — see `training/TODO.md`)
+- Python `3.14.4` (runtime pinned by `.python-version`)
 - FastAPI `0.135.3`
 - Uvicorn
 - PyTorch `2.13.0` (primary deep learning framework — forecaster LSTM/GRU, anomaly autoencoder)
-- scikit-learn `1.8.0`
+- scikit-learn `1.9.0`
 - scipy, joblib, pandas, numpy, pyarrow
 - matplotlib, seaborn (visualization)
 - Pytest, HTTPX
 
 ## Prerequisites
 
-- Python `3.13.14`
+- Python `3.14.4`
 - `pip`
 - `venv`
 
@@ -108,7 +108,7 @@ odin-ml/
 
 ```powershell
 cd C:\path\to\App\odin-ml
-py -3.13 -m venv .venv
+py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -119,7 +119,7 @@ pip install -r requirements-dev.txt
 
 ```bash
 cd /path/to/App/odin-ml
-python3.13 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -130,7 +130,7 @@ pip install -r requirements-dev.txt
 
 ```fish
 cd /path/to/App/odin-ml
-python3.13 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate.fish
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -146,7 +146,7 @@ uvicorn app.main:app --reload --port 8000
 ## Common Commands
 
 ```bash
-python3.13 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate        # Fish: source .venv/bin/activate.fish
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
@@ -194,9 +194,9 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Then activate the venv again.
 
-### `python3.13` is not found
+### `python3.14` is not found
 
-Confirm Python `3.13.14` is installed and on your `PATH`. On Windows use `py -3.13 --version`; on Bash or Fish use `python3.13 --version`.
+Confirm Python `3.14.4` is installed and on your `PATH`. On Windows use `py -3.14 --version`; on Bash or Fish use `python3.14 --version`.
 
 ### PyTorch not installed
 

@@ -4,7 +4,7 @@
 
 This document describes the training pipeline for the Isolation Forest Anomaly Detector module, which detects anomalous transactions at the individual transaction level using unsupervised and semi-supervised methods.
 
-**MDD Reference:** MDD.md lines 771-1104 (Model Design Document - Anomaly Detector)
+**MDD Reference:** `module-design-document.md` lines 771-1104 (Model Design Document - Anomaly Detector)
 
 ## Feature Engineering
 

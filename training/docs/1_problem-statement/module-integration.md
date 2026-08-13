@@ -581,9 +581,9 @@ async def analyze_user_safe(user_id):
 
 | Output | Description | Location |
 |--------|-------------|----------|
-| `api-spec.yaml` | OpenAPI 3.0 specification | `docs/prerequisites/` |
-| `event-schema.json` | Event bus message schemas | `docs/prerequisites/` |
-| `integration-diagram.png` | System architecture diagram | `docs/prerequisites/` |
+| `api-spec.yaml` | OpenAPI 3.0 specification | `1_problem-statement/` |
+| `event-schema.json` | Event bus message schemas | `1_problem-statement/` |
+| `integration-diagram.png` | System architecture diagram | `1_problem-statement/` |
 
 ---
 

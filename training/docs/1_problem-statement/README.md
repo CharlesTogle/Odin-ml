@@ -21,7 +21,7 @@ Four models are designed to work together:
 
 | Model | Type | Classes/Targets | Purpose |
 |-------|------|-----------------|---------|
-| **PFP Classifier** | Multi-class classification | 8 (Stable-Flexible-Tolerant, Stable-Flexible-Tight, Stable-Obligated-Tolerant, Stable-Obligated-Tight, Variable-Flexible-Tolerant, Variable-Flexible-Tight, Variable-Obligated-Tolerant, Variable-Obligated-Tight) | Assign personal financial profile |
+| **PFP Classifier** | Multi-class classification | 8 (Stable-Flexible-Tolerant, Stable-Flexible-At-Risk, Stable-Obligated-Tolerant, Stable-Obligated-At-Risk, Variable-Flexible-Tolerant, Variable-Flexible-At-Risk, Variable-Obligated-Tolerant, Variable-Obligated-At-Risk) | Assign personal financial profile |
 | **Forecaster** | Time-series regression | Continuous (monthly expenses) | Predict future income and expense trends |
 | **Anomaly Detector** | Anomaly detection | Binary (normal/anomalous) | Detect unusual spending patterns |
 | **Budget Optimizer** | Constraint optimization | Continuous (category allocations) | Recommend budget allocations within constraints |
@@ -47,17 +47,18 @@ Key architectural choices documented in MDD:
 
 | Output | Location | Description |
 |--------|----------|-------------|
-| `MDD.md` | `docs/1_problem-statement/` | Complete model design document (1,319 lines) |
-| `MDD - Template.md` | `docs/1_problem-statement/` | Blank template for new model designs |
-| `feature-set.md` | `docs/prerequisites/` | Complete feature definitions for all 3 models |
-| `walk-forward-validation.md` | `docs/prerequisites/` | Temporal validation methodology |
-| `partial-window-splits.md` | `docs/prerequisites/` | Train/val/test splitting strategy |
-| `roc-cutoff-selection.md` | `docs/prerequisites/` | Threshold calibration for PFP |
-| `module-integration.md` | `docs/prerequisites/` | Inter-module API contracts |
-| `deployment-architecture.md` | `docs/prerequisites/` | Container/k8s/CI-CD design |
-| `synthetic-injection-rules.md` | `docs/prerequisites/` | 20 rules for FIES→Persona→Transaction |
-| `persona-validation-list.md` | `docs/prerequisites/` | 12 archetypes for SME review |
-| `TODO-MDD-Gaps.md` | `docs/prerequisites/` | Implementation gap tracker |
+| `module-design-document.md` | `1_problem-statement/` | Complete model design document (1,629 lines) |
+| `bsp-fies-crosswalk.md` | `1_problem-statement/` | BSP CFS ↔ FIES NCR field mapping + archetype justification |
+| `feature-set.md` | `1_problem-statement/` | Complete feature definitions for all 3 models |
+| `walk-forward-validation.md` | `1_problem-statement/` | Temporal validation methodology |
+| `partial-window-splits.md` | `1_problem-statement/` | Train/val/test splitting strategy |
+| `roc-cutoff-selection.md` | `1_problem-statement/` | Threshold calibration for PFP |
+| `module-integration.md` | `1_problem-statement/` | Inter-module API contracts |
+| `deployment-architecture.md` | `1_problem-statement/` | Container/k8s/CI-CD design |
+| `synthetic-injection-rules.md` | `1_problem-statement/` | 20 rules for FIES→Persona→Transaction |
+| `persona-validation-list.md` | `1_problem-statement/` | 12 archetypes for SME review |
+| `persona-validation-list-SME-draft.md` | `1_problem-statement/` | SME review draft of the archetype roster |
+| Open tasks & gaps | `training/TODO.md` | MDD follow-up tasks and known data/version gaps |
 
 ## Key Design Rationale
 
@@ -70,7 +71,7 @@ FIES microdata is anonymized per RA 10173 (Data Privacy Act) and PSA disclosure 
 The PFP is derived from exactly three **classifying** dimensions:
 - **Income stability** *(classifying)*: Stable vs. Variable (based on income coefficient of variation)
 - **Obligation weight** *(classifying)*: Flexible vs. Obligated (based on (Essential + Obligatory) / Total Expenses)
-- **Financial tolerance** *(classifying)*: Tolerant vs. Tight (based on emergency runway — months of expenses covered by savings)
+- **Financial tolerance** *(classifying)*: Tolerant vs. At-Risk (based on emergency runway — months of expenses covered by savings)
 
 This creates 2×2×2 = **8 balanced classes** that capture meaningful personal financial profile differences across stability, obligation burden, and financial resilience.
 

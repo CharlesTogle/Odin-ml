@@ -64,7 +64,7 @@ def classify_questionnaire(request: PFPClassifyRequest) -> PFPClassification:
     label_parts = []
     label_parts.append("Variable" if stability < 0.5 else "Stable")
     label_parts.append("Obligated" if weight >= 0.5 else "Flexible")
-    label_parts.append("Tight" if tolerance < 0.5 else "Tolerant")
+    label_parts.append("At-Risk" if tolerance < 0.5 else "Tolerant")
     prediction = "/".join(label_parts)
 
     confidence = round(max(stability, weight, tolerance), 4)
