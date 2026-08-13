@@ -9,7 +9,6 @@ Python microservice for machine learning APIs and inference, plus the complete m
 | `app/` | FastAPI microservice for model serving (PFP, forecaster, anomaly, budget) |
 | `tests/` | Pytest coverage for the serving API |
 | `training/scripts/` | Data collection, preprocessing, feature engineering, and training pipeline |
-| `training/docs/` | ML design documents, feature specs, preprocessing docs |
 | `training/datasets/` | Processed + engineered feature matrices (Parquet, gitignored) |
 | `training/synth/` | Generated personas and transactions (Parquet, gitignored) |
 | `training/models/` | Trained model artifacts (joblib, gitignored) |
@@ -58,7 +57,7 @@ python training/scripts/train_forecaster.py --input training/datasets/processed/
 python training/scripts/train_anomaly.py --input training/datasets/processed/ --output training/models/anomaly
 ```
 
-The Budget Optimizer is a constraint-optimization module (LP via `scipy.linprog`); see the Budget Optimizer MDD v1.0 in `training/docs/1_problem-statement/module-design-document.md`.
+The Budget Optimizer is a constraint-optimization module (LP via `scipy.linprog`); see the Budget Optimizer MDD v1.0 in `../Odin-Paper/docs/ml/1_problem-statement/module-design-document.md`.
 
 ## Tech Stack
 
