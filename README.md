@@ -17,11 +17,14 @@ Python microservice for machine learning APIs and inference, plus the complete m
 ## Model Development Pipeline
 
 ```
-FIES 2023 Data → collector.py → preprocessor.py → feature_engineering.py → eda.py → [train scripts]
-     ↓                ↓               ↓                    ↓                  ↓
- training/datasets/ training/     training/synth/ +    training/          figures/
-      raw/       unprocessed/       datasets/          datasets/
-                                   processed/          engineered/
+FIES 2023 → collector.py → preprocessor.py → feature engineering → train_* → models/
+     ↓            ↓              ↓                 ↓                 ↓
+datasets/    datasets/      datasets/         datasets/        models/
+  raw/     unprocessed/     processed/      engineered/        pfp/
+                                 ↓              forecaster/     forecaster/
+                           datasets/synth/      anomaly/        anomaly/
+                           personas +           dimension-
+                           transactions         discovery/
 ```
 
 All pipeline commands run from the repository root with the virtualenv activated:
@@ -38,11 +41,32 @@ python training/scripts/preprocessor.py \
   --output training/datasets/processed/
 ```
 
+`preprocessor.py` also writes the synthetic personas, transactions, and monthly
+summaries used by the model-specific feature engineering steps:
+
+```text
+training/synth/{personas.json, personas.parquet, transactions.parquet, monthly_summaries.parquet}
+```
+
+Feature engineering (one step per model family; each outputs a gitignored feature matrix):
+
 ```bash
 python training/scripts/feature_engineering.py \
   --input training/datasets/processed/ \
   --output training/datasets/engineered/
+
+python training/scripts/feature_engineering_forecaster.py
+python training/scripts/feature_engineering_anomaly.py
+python training/scripts/dimension_discovery.py
 ```
+
+Defaults: `feature_engineering_forecaster.py` reads `training/synth/` +
+`training/datasets/processed/split_metadata.json` → `training/datasets/forecaster/`;
+`feature_engineering_anomaly.py` reads `training/synth/transactions.parquet` +
+splits → `training/datasets/anomaly/`; `dimension_discovery.py` reads `training/synth/`
+→ `training/datasets/dimension-discovery/`.
+
+EDA (reads `training/datasets/processed/`, writes `figures/`):
 
 ```bash
 python training/scripts/eda.py \
@@ -51,11 +75,18 @@ python training/scripts/eda.py \
   --seed 42
 ```
 
+Training (each model reads its own feature matrix and writes `training/models/`):
+
 ```bash
-python training/scripts/train_pfp.py --input training/datasets/processed/ --output training/models/pfp
-python training/scripts/train_forecaster.py --input training/datasets/processed/ --output training/models/forecaster
-python training/scripts/train_anomaly.py --input training/datasets/processed/ --output training/models/anomaly
+python training/scripts/train_pfp.py
+python training/scripts/train_forecaster.py
+python training/scripts/train_anomaly.py
 ```
+
+Defaults: `train_pfp.py` reads `training/datasets/engineered/` → `models/pfp/`;
+`train_forecaster.py` reads `training/datasets/forecaster/` → `models/forecaster/`;
+`train_anomaly.py` reads `training/datasets/anomaly/` → `models/anomaly/`. All three
+consume `training/datasets/processed/temporal_folds.json` for walk-forward validation.
 
 The Budget Optimizer is a constraint-optimization module (LP via `scipy.linprog`); see the Budget Optimizer MDD v1.0 in `../Odin-Paper/docs/ml/1_problem-statement/module-design-document.md`.
 
@@ -91,7 +122,7 @@ odin-ml/
 ├─ training/
 │  ├─ scripts/                    # collector, preprocessor, feature engineering, train_* scripts
 │  ├─ docs/                       # ML design documents and phase docs
-│  ├─ datasets/                   # raw/, unprocessed/, processed/, engineered/ (Parquet, gitignored)
+│  ├─ datasets/                   # raw/, unprocessed/, processed/, engineered/, forecaster/, anomaly/, dimension-discovery/ (Parquet, gitignored)
 │  ├─ synth/                      # Generated personas + transactions (Parquet, gitignored)
 │  └─ models/                     # Trained artifacts: pfp/, forecaster/, anomaly/ (gitignored)
 ├─ figures/                       # EDA plots

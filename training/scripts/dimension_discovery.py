@@ -17,7 +17,7 @@ Note: Any patterns found are bounded by what the synthesis process encoded
 (circularity caveat) and are provisional pending real user data.
 
 Usage:
-    python scripts/dimension_discovery.py --input datasets/processed/ --output docs/4.5_dimension-threshold-discovery/
+    python scripts/dimension_discovery.py --input datasets/processed/ --output datasets/dimension-discovery/
 """
 
 import argparse
@@ -251,7 +251,7 @@ def main():
     )
     parser.add_argument("--input", default="datasets/processed/",
                         help="Input directory with processed data")
-    parser.add_argument("--output", default="docs/4.5_dimension-threshold-discovery/",
+    parser.add_argument("--output", default="datasets/dimension-discovery/",
                         help="Output directory")
     parser.add_argument("--synth-dir", default="synth/",
                         help="Synthetic data directory")
