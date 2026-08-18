@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Any
 
-from app.models.artifact_classes import register_artifact_classes
+import torch
+
+from app.models.artifact_classes import (
+    IQRDetector,
+    _Autoencoder,
+    _SequenceForecaster,
+    register_artifact_classes,
+)
 from app.models.loader import ModelLoader
 
 PFP_MODULE = "pfp"
-PFP_ARTIFACT = "tier3_random_forest.joblib"
+PFP_ARTIFACT = "tier3_svm.joblib"
 FORECASTER_MODULE = "forecaster"
-FORECASTER_ARTIFACT = "tier2_random_forest.joblib"
 ANOMALY_MODULE = "anomaly"
 ANOMALY_ARTIFACT = "anomaly_detector.joblib"
 
@@ -20,10 +27,40 @@ class ModuleModel:
     model: Any
     evaluation: dict
     feature_columns: list[str]
+    threshold: float | None = None
+
+
+def _resolve_forecaster_artifact(evaluation: dict, output_dir) -> tuple[str, Any]:
+    """Load the forecaster winner artifact from evaluation.json."""
+    winner = evaluation.get("winner", "tier2_random_forest")
+    if winner == "tier2_random_forest":
+        artifact = "tier2_random_forest.joblib"
+        model = ModelLoader().load_joblib(FORECASTER_MODULE, artifact)
+        return artifact, model
+    # PyTorch winner (tier3_gru, tier3_lstm, tier3_bilstm)
+    pth_path = output_dir / f"{winner}.pth"
+    meta_path = output_dir / f"{winner}_meta.joblib"
+    if pth_path.exists() and meta_path.exists():
+        import joblib
+        meta = joblib.load(str(meta_path))
+        state = torch.load(str(pth_path), map_location="cpu", weights_only=True)
+        variant = state.get("model_type", winner.replace("tier3_", ""))
+        input_size = state.get("input_size", 20)
+        hidden_size = state.get("hidden_size", 32)
+        seq_length = state.get("seq_length", 3)
+        model = _SequenceForecaster(input_size, hidden_size, variant)
+        model.load_state_dict(state["model_state_dict"])
+        model.eval()
+        return winner, {"model": model, "scaler": meta["scaler"],
+                        "feature_cols": meta["feature_cols"],
+                        "seq_length": seq_length}
+    # Fallback to RF
+    return "tier2_random_forest.joblib", ModelLoader().load_joblib(
+        FORECASTER_MODULE, "tier2_random_forest.joblib")
 
 
 class ModelRegistry:
-    """Loads and exposes all four module artifacts at startup (lifespan)."""
+    """Loads and exposes all module artifacts at startup (lifespan)."""
 
     def __init__(self, loader: ModelLoader | None = None):
         self.loader = loader or ModelLoader()
@@ -33,7 +70,7 @@ class ModelRegistry:
 
     def load_all(self) -> None:
         self.pfp = self._load_sklearn(PFP_MODULE, PFP_ARTIFACT)
-        self.forecaster = self._load_sklearn(FORECASTER_MODULE, FORECASTER_ARTIFACT)
+        self.forecaster = self._load_forecaster()
         self.anomaly = self._load_anomaly()
 
     def _load_sklearn(self, module: str, artifact: str) -> ModuleModel:
@@ -45,13 +82,26 @@ class ModelRegistry:
         return ModuleModel(module=module, model=model, evaluation=evaluation,
                            feature_columns=feature_columns)
 
+    def _load_forecaster(self) -> ModuleModel:
+        evaluation = self.loader.load_json(FORECASTER_MODULE, "evaluation.json")
+        feature_columns = evaluation.get("feature_columns", [])
+        output_dir = self.loader.resolve(FORECASTER_MODULE)
+        artifact_name, model = _resolve_forecaster_artifact(evaluation, output_dir)
+        return ModuleModel(module=FORECASTER_MODULE, model=model,
+                           evaluation=evaluation, feature_columns=feature_columns)
+
     def _load_anomaly(self) -> ModuleModel:
         register_artifact_classes()
         evaluation = self.loader.load_json(ANOMALY_MODULE, "evaluation.json")
         feature_columns = evaluation.get("feature_columns", [])
         model = self.loader.load_joblib(ANOMALY_MODULE, ANOMALY_ARTIFACT)
+        threshold = (
+            evaluation.get("val_selected_threshold")
+            or evaluation.get("final_test_metrics", {}).get("best_threshold")
+            or evaluation.get("threshold")
+        )
         return ModuleModel(module=ANOMALY_MODULE, model=model, evaluation=evaluation,
-                           feature_columns=feature_columns)
+                           feature_columns=feature_columns, threshold=threshold)
 
     @property
     def is_ready(self) -> bool:

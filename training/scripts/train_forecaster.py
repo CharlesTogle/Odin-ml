@@ -11,9 +11,10 @@ Tiers:
   Tier 3c: BiLSTM (daily feature sequences) — PyTorch
 
 Evaluation:
-  - 5-fold expanding window (temporal_folds.json)
-  - Primary metric: MAPE (Mean Absolute Percentage Error)
-  - Secondary: RMSE, MAE, R-squared
+  - 5-fold expanding window (temporal_folds.json); embargo months excluded from
+    training labels but available as feature context
+  - Primary metrics: MAE, SMAPE, MDA, RMSE (MDD v2.4)
+  - Supplementary: MAPE, R-squared
   - Decision rule: best model must beat naive baseline by 20% MAPE reduction
 
 Usage:
@@ -71,7 +72,6 @@ FORECASTER_FEATURES = [
     "rolling_mean_30d", "rolling_std_30d",
     "is_payday", "days_to_payday",
     "recency", "frequency_30d", "monetary_30d",
-    "stl_trend", "stl_seasonal", "stl_residual",
 ]
 
 META_COLUMNS = ["user_id", "date", "month", "year", "target_expenses",
@@ -153,66 +153,99 @@ def prepare_monthly_sequences(monthly_df: pd.DataFrame, feature_cols: list,
                                lookback: int = 3,
                                filter_months: Optional[list] = None) -> tuple:
     """Create sequences for LSTM: past N months of features -> next month target.
-    
-    If filter_months is provided, only produce samples where the target month
-    is in filter_months (but lookback can use any prior months).
+
+    A sample is built from the row in month M (target month M+1): features span
+    months M-lookback+1..M and the target is month M+1's total expenses. If
+    filter_months is provided, only samples whose TARGET month is in
+    filter_months are kept. Returns (X, y, meta, y_prev) where y_prev is the
+    actual expenses of month M (used for direction-of-change accuracy).
     """
-    X_seq, y_seq, meta = [], [], []
+    X_seq, y_seq, meta, y_prev = [], [], [], []
     for uid in monthly_df["user_id"].unique():
         user_data = monthly_df[monthly_df["user_id"] == uid].sort_values("month")
         features = user_data[feature_cols].values
         targets = user_data["target_expenses"].values
         months = user_data["month"].values
 
-        for i in range(lookback, len(user_data)):
-            if targets[i] > 0:
-                if filter_months is None or months[i] in filter_months:
-                    X_seq.append(features[i - lookback:i])
-                    y_seq.append(targets[i])
-                    meta.append({"user_id": uid, "month": int(months[i])})
+        for i in range(lookback - 1, len(user_data)):
+            if np.isnan(targets[i]):
+                continue
+            target_month = int(months[i]) + 1
+            if filter_months is None or target_month in filter_months:
+                X_seq.append(features[i - lookback + 1:i + 1])
+                y_seq.append(targets[i])
+                y_prev.append(targets[i - 1])
+                meta.append({"user_id": uid, "month": target_month})
 
     if not X_seq:
-        return np.array([]), np.array([]), []
-    return np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32), meta
+        return np.array([]), np.array([]), [], np.array([])
+    return (np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32),
+            meta, np.array(y_prev, dtype=np.float32))
 
 
 def prepare_flat_features(monthly_df: pd.DataFrame, feature_cols: list,
                           filter_months: Optional[list] = None) -> tuple:
     """Create flat feature matrix for RF: past N months flattened.
-    
-    If filter_months is provided, only produce samples where the target month
-    is in filter_months (but lookback can use any prior months).
+
+    A sample is built from the row in month M (target month M+1): features span
+    months M-lookback+1..M and the target is month M+1's total expenses. If
+    filter_months is provided, only samples whose TARGET month is in
+    filter_months are kept. Returns (X, y, meta, y_prev).
     """
     lookback = 3
-    X_flat, y_flat, meta = [], [], []
+    X_flat, y_flat, meta, y_prev = [], [], [], []
     for uid in monthly_df["user_id"].unique():
         user_data = monthly_df[monthly_df["user_id"] == uid].sort_values("month")
         features = user_data[feature_cols].values
         targets = user_data["target_expenses"].values
         months = user_data["month"].values
 
-        for i in range(lookback, len(user_data)):
-            if targets[i] > 0:
-                if filter_months is None or months[i] in filter_months:
-                    x = features[i - lookback:i].flatten()
-                    X_flat.append(x)
-                    y_flat.append(targets[i])
-                    meta.append({"user_id": uid, "month": int(months[i])})
+        for i in range(lookback - 1, len(user_data)):
+            if np.isnan(targets[i]):
+                continue
+            target_month = int(months[i]) + 1
+            if filter_months is None or target_month in filter_months:
+                x = features[i - lookback + 1:i + 1].flatten()
+                X_flat.append(x)
+                y_flat.append(targets[i])
+                y_prev.append(targets[i - 1])
+                meta.append({"user_id": uid, "month": target_month})
 
     if not X_flat:
-        return np.array([]), np.array([]), []
-    return np.array(X_flat, dtype=np.float32), np.array(y_flat, dtype=np.float32), meta
+        return np.array([]), np.array([]), [], np.array([])
+    return (np.array(X_flat, dtype=np.float32), np.array(y_flat, dtype=np.float32),
+            meta, np.array(y_prev, dtype=np.float32))
 
 
 # ---------------------------------------------------------------------------
 # Evaluation Metrics
 # ---------------------------------------------------------------------------
 
-def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str) -> dict:
-    """Compute regression metrics."""
+def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str,
+                    y_prev: Optional[np.ndarray] = None) -> dict:
+    """Compute regression metrics.
+
+    Primary (MDD v2.4): MAE, SMAPE, MDA, RMSE. Supplementary: MAPE, R-squared.
+    MDA (direction-of-change accuracy) compares the sign of the predicted
+    change against the sign of the actual change, using y_prev as the prior
+    period actual.
+    """
     rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
     mae = float(mean_absolute_error(y_true, y_pred))
     r2 = float(r2_score(y_true, y_pred))
+
+    denom = np.abs(y_true) + np.abs(y_pred)
+    smape_vals = np.divide(2.0 * np.abs(y_true - y_pred), denom,
+                           out=np.zeros_like(denom, dtype=float), where=denom != 0)
+    smape = float(np.mean(smape_vals) * 100)
+
+    mda = float("nan")
+    if y_prev is not None and len(y_prev) == len(y_true):
+        valid = ~np.isnan(y_prev)
+        if valid.sum() > 0:
+            actual_change = np.sign(y_true[valid] - y_prev[valid])
+            pred_change = np.sign(y_pred[valid] - y_prev[valid])
+            mda = float(np.mean(actual_change == pred_change))
 
     # MAPE: exclude zero/near-zero targets to avoid division-by-zero explosion
     # Threshold: 1% of mean target value
@@ -225,9 +258,11 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str) -> d
         mape = float("inf")
 
     return {
-        "mape": round(mape, 4),
-        "rmse": round(rmse, 4),
         "mae": round(mae, 4),
+        "smape": round(smape, 4),
+        "mda": round(mda, 4),
+        "rmse": round(rmse, 4),
+        "mape": round(mape, 4),
         "r2": round(r2, 4),
         "tier": tier_name,
     }
@@ -423,8 +458,10 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
         # Training set: months in train_months, with lookback from earlier months
         train_monthly = all_monthly[all_monthly["month"].isin(train_months)].copy()
 
-        # Test set: months in test_months, with lookback from all prior months
-        context_months = train_months + test_months  # all months up to test
+        # Test set: target months in test_months, with lookback from all prior
+        # months including embargo months (features only, never training labels)
+        embargo_months = fold_info.get("embargo_months", [])
+        context_months = sorted(set(train_months + embargo_months + test_months))
         test_context = all_monthly[all_monthly["month"].isin(context_months)].copy()
 
         if train_monthly.empty:
@@ -443,20 +480,30 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
                         "tier_results": {}}
 
         # --- Naive Baseline ---
-        test_actual = test_context[test_context["month"].isin(test_months)]
+        # Test samples target month T (rows in month T-1). Naive predicts the
+        # mean of training targets. Prior actual for MDA = month T-2 expenses
+        # (from test_context, not shift within test_actual which has 1 row/user).
+        target_row_months = [m - 1 for m in test_months if m - 1 >= 1]
+        test_actual = test_context[test_context["month"].isin(target_row_months)].copy()
+        test_actual = test_actual.sort_values(["user_id", "month"])
         naive_pred = np.full(len(test_actual),
                               train_monthly["target_expenses"].mean())
+        prior_months = [m - 2 for m in test_months if m - 2 >= 1]
+        prior_rows = test_context[test_context["month"].isin(prior_months)].set_index("user_id")["target_expenses"]
+        naive_y_prev = test_actual["user_id"].map(prior_rows).values
         naive_metrics = compute_metrics(
-            test_actual["target_expenses"].values, naive_pred, "naive_baseline"
+            test_actual["target_expenses"].values, naive_pred, "naive_baseline",
+            y_prev=naive_y_prev,
         )
         fold_results["tier_results"]["naive_baseline"] = naive_metrics
         fold_results["n_test"] = len(test_actual)
-        print(f"  Naive: MAPE={naive_metrics['mape']:.2f}%")
+        print(f"  Naive: MAPE={naive_metrics['mape']:.2f}%, "
+              f"SMAPE={naive_metrics['smape']:.2f}%, MDA={naive_metrics['mda']:.4f}")
 
         # --- Tier 2: Random Forest ---
         # Train on train months, test on test months (with lookback context)
-        X_train_rf, y_train_rf, _ = prepare_flat_features(train_monthly, feature_cols)
-        X_test_rf, y_test_rf, meta_rf = prepare_flat_features(
+        X_train_rf, y_train_rf, _, _ = prepare_flat_features(train_monthly, feature_cols)
+        X_test_rf, y_test_rf, meta_rf, y_prev_rf = prepare_flat_features(
             test_context, feature_cols, filter_months=test_months
         )
 
@@ -467,18 +514,21 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
 
             rf_model, rf_pred = train_rf(X_train_rf_s, y_train_rf,
                                           X_test_rf_s, y_test_rf)
-            rf_metrics = compute_metrics(y_test_rf, rf_pred, "tier2_random_forest")
+            rf_metrics = compute_metrics(y_test_rf, rf_pred, "tier2_random_forest",
+                                         y_prev=y_prev_rf)
             fold_results["tier_results"]["tier2_random_forest"] = rf_metrics
-            print(f"  RF: MAPE={rf_metrics['mape']:.2f}%, R²={rf_metrics['r2']:.4f}")
+            print(f"  RF: MAPE={rf_metrics['mape']:.2f}%, "
+                  f"SMAPE={rf_metrics['smape']:.2f}%, MDA={rf_metrics['mda']:.4f}, "
+                  f"R²={rf_metrics['r2']:.4f}")
         else:
             print(f"  RF: Skipped (train={len(X_train_rf)}, test={len(X_test_rf)})")
 
         # --- Tier 3: LSTM / GRU / BiLSTM ---
         if HAS_PYTORCH:
-            X_train_seq, y_train_seq, _ = prepare_monthly_sequences(
+            X_train_seq, y_train_seq, _, _ = prepare_monthly_sequences(
                 train_monthly, feature_cols, lookback=3
             )
-            X_test_seq, y_test_seq, meta_seq = prepare_monthly_sequences(
+            X_test_seq, y_test_seq, meta_seq, y_prev_seq = prepare_monthly_sequences(
                 test_context, feature_cols, lookback=3, filter_months=test_months
             )
 
@@ -501,10 +551,12 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
                         X_test_seq_s, y_test_seq,
                         model_type=variant,
                     )
-                    metrics = compute_metrics(y_test_seq, pred, tier_name)
+                    metrics = compute_metrics(y_test_seq, pred, tier_name,
+                                              y_prev=y_prev_seq)
                     fold_results["tier_results"][tier_name] = metrics
                     print(f"  {variant.upper()}: MAPE={metrics['mape']:.2f}%, "
-                          f"R²={metrics['r2']:.4f}")
+                          f"SMAPE={metrics['smape']:.2f}%, "
+                          f"MDA={metrics['mda']:.4f}, R²={metrics['r2']:.4f}")
             else:
                 print(f"  LSTM: Skipped (train={len(X_train_seq)}, "
                       f"test={len(X_test_seq)})")
@@ -528,22 +580,40 @@ def aggregate_metrics(fold_results: list) -> dict:
 
     aggregate = {}
     for tier in tier_names:
-        mapes = [fr["tier_results"][tier]["mape"]
-                 for fr in fold_results if tier in fr["tier_results"]]
-        rmses = [fr["tier_results"][tier]["rmse"]
-                 for fr in fold_results if tier in fr["tier_results"]]
-        r2s = [fr["tier_results"][tier]["r2"]
-               for fr in fold_results if tier in fr["tier_results"]]
+        vals = {k: [fr["tier_results"][tier][k]
+                    for fr in fold_results if tier in fr["tier_results"]]
+                for k in ("mae", "smape", "mda", "rmse", "mape", "r2")}
 
-        if mapes:
+        if vals["mape"]:
+            def _agg(key, fmt=round):
+                arr = np.array([v for v in vals[key] if v is not None
+                                and not (isinstance(v, float) and np.isnan(v))],
+                               dtype=float)
+                if len(arr) == 0:
+                    return None, None
+                return fmt(float(np.mean(arr)), 4), fmt(float(np.std(arr)), 4)
+
+            mae_mean, mae_std = _agg("mae")
+            smape_mean, smape_std = _agg("smape")
+            mda_mean, mda_std = _agg("mda")
+            rmse_mean, rmse_std = _agg("rmse")
+            mape_mean, mape_std = _agg("mape")
+            r2_mean, r2_std = _agg("r2")
+
             aggregate[tier] = {
-                "mape_mean": round(float(np.mean(mapes)), 4),
-                "mape_std": round(float(np.std(mapes)), 4),
-                "rmse_mean": round(float(np.mean(rmses)), 4),
-                "rmse_std": round(float(np.std(rmses)), 4),
-                "r2_mean": round(float(np.mean(r2s)), 4),
-                "r2_std": round(float(np.std(r2s)), 4),
-                "n_folds": len(mapes),
+                "mae_mean": mae_mean,
+                "mae_std": mae_std,
+                "smape_mean": smape_mean,
+                "smape_std": smape_std,
+                "mda_mean": mda_mean,
+                "mda_std": mda_std,
+                "rmse_mean": rmse_mean,
+                "rmse_std": rmse_std,
+                "mape_mean": mape_mean,
+                "mape_std": mape_std,
+                "r2_mean": r2_mean,
+                "r2_std": r2_std,
+                "n_folds": len(vals["mape"]),
             }
     return aggregate
 
@@ -556,8 +626,11 @@ def apply_decision_rule(aggregate: dict, naive_mape: float) -> tuple:
     for tier, metrics in aggregate.items():
         if tier == "naive_baseline":
             continue
-        if metrics["mape_mean"] < best_mape:
-            best_mape = metrics["mape_mean"]
+        mape_mean = metrics.get("mape_mean")
+        if mape_mean is None or not np.isfinite(mape_mean):
+            continue
+        if mape_mean < best_mape:
+            best_mape = mape_mean
             best_tier = tier
 
     if best_tier is None or naive_mape <= 0:
@@ -590,7 +663,7 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path,
     scaler = StandardScaler()
 
     if winner == "tier2_random_forest":
-        X, y, _ = prepare_flat_features(monthly, feature_cols)
+        X, y, _, _ = prepare_flat_features(monthly, feature_cols)
         X_s = scaler.fit_transform(X)
         model = RandomForestRegressor(
             n_estimators=200, max_depth=10, n_jobs=-1, random_state=42
@@ -602,7 +675,7 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path,
 
     elif winner.startswith("tier3_") and HAS_PYTORCH:
         variant = winner.replace("tier3_", "")
-        X, y, _ = prepare_monthly_sequences(monthly, feature_cols, lookback=3)
+        X, y, _, _ = prepare_monthly_sequences(monthly, feature_cols, lookback=3)
         if len(X) > 0:
             n, seq_len, n_feat = X.shape
             X_flat = X.reshape(-1, n_feat)
@@ -644,16 +717,22 @@ def write_evaluation_report(report: TrainingReport, output_dir: Path):
         f"\n## Winner: {report.winner}",
         f"**Reason:** {report.winner_reason}",
         "\n## Aggregate Results",
-        "\n| Tier | MAPE (mean±std) | RMSE (mean±std) | R² (mean±std) | Folds |",
-        "|------|----------------|----------------|--------------|-------|",
+        "\n| Tier | MAE (mean±std) | SMAPE (mean±std) | MDA (mean±std) | RMSE (mean±std) | MAPE (mean±std) | R² (mean±std) | Folds |",
+        "|------|---------------|-----------------|---------------|----------------|----------------|--------------|-------|",
     ]
+
+    def _fmt(v, suffix=""):
+        return "—" if v is None else f"{v}{suffix}"
 
     for tier, metrics in sorted(report.aggregate_metrics.items()):
         lines.append(
             f"| {tier} | "
-            f"{metrics['mape_mean']:.2f}±{metrics['mape_std']:.2f}% | "
-            f"{metrics['rmse_mean']:.2f}±{metrics['rmse_std']:.2f} | "
-            f"{metrics['r2_mean']:.4f}±{metrics['r2_std']:.4f} | "
+            f"{_fmt(metrics['mae_mean'])}±{_fmt(metrics['mae_std'])} | "
+            f"{_fmt(metrics['smape_mean'])}±{_fmt(metrics['smape_std'])} | "
+            f"{_fmt(metrics['mda_mean'])}±{_fmt(metrics['mda_std'])} | "
+            f"{_fmt(metrics['rmse_mean'])}±{_fmt(metrics['rmse_std'])} | "
+            f"{_fmt(metrics['mape_mean'], '%')}±{_fmt(metrics['mape_std'], '%')} | "
+            f"{_fmt(metrics['r2_mean'])}±{_fmt(metrics['r2_std'])} | "
             f"{metrics['n_folds']} |"
         )
 
@@ -664,12 +743,13 @@ def write_evaluation_report(report: TrainingReport, output_dir: Path):
         lines.append(f"- Test months: {fr['test_months']}")
         lines.append(f"- Train samples: {fr['n_train']}")
         lines.append(f"- Test samples: {fr['n_test']}")
-        lines.append("\n| Tier | MAPE | RMSE | MAE | R² |")
-        lines.append("|------|------|------|-----|-----|")
+        lines.append("\n| Tier | MAE | SMAPE | MDA | RMSE | MAPE | R² |")
+        lines.append("|------|-----|-------|-----|------|------|-----|")
         for tier, m in sorted(fr["tier_results"].items()):
             lines.append(
-                f"| {tier} | {m['mape']:.2f}% | {m['rmse']:.2f} | "
-                f"{m['mae']:.2f} | {m['r2']:.4f} |"
+                f"| {tier} | {m['mae']:.2f} | {m['smape']:.2f}% | "
+                f"{m['mda']:.4f} | {m['rmse']:.2f} | "
+                f"{m['mape']:.2f}% | {m['r2']:.4f} |"
             )
 
     with open(output_dir / "evaluation_report.md", "w") as f:
@@ -709,7 +789,7 @@ def run_training(config: dict) -> TrainingReport:
     print("\n[3/5] Aggregating metrics...")
     report.aggregate_metrics = aggregate_metrics(report.fold_results)
 
-    naive_mape = report.aggregate_metrics.get("naive_baseline", {}).get("mape_mean", 0)
+    naive_mape = report.aggregate_metrics.get("naive_baseline", {}).get("mape_mean") or 0
     report.naive_mape = naive_mape
 
     # Decision rule
@@ -730,6 +810,7 @@ def run_training(config: dict) -> TrainingReport:
         "n_folds": report.n_folds,
         "pre_registered_mape_reduction": PRE_REGISTERED_MAPE_REDUCTION,
         "naive_mape": naive_mape,
+        "feature_columns": feature_cols,
         "aggregate_metrics": report.aggregate_metrics,
         "winner": report.winner,
         "winner_reason": report.winner_reason,

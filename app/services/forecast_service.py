@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import torch
 
 from app.models.registry import ModuleModel
 from app.schemas.forecast import (
@@ -15,9 +16,46 @@ from app.services.features import forecast_last_3_months, transactions_to_frame
 def _predict_monthly_total(model: ModuleModel, transactions: list[dict]) -> tuple[float, dict]:
     vector = forecast_last_3_months(transactions, model.feature_columns)
     artifact = model.model
-    scaled = artifact["scaler"].transform(vector)
-    trees = np.array([t.predict(scaled) for t in artifact["model"].estimators_]).flatten()
 
+    if isinstance(artifact, dict) and "model" in artifact and hasattr(artifact["model"], "forward"):
+        # PyTorch model (GRU/LSTM/BiLSTM)
+        nn_model = artifact["model"]
+        scaler = artifact["scaler"]
+        seq_length = artifact.get("seq_length", 3)
+        n_features = len(model.feature_columns)
+
+        flat = vector.flatten()
+        n_months = len(flat) // n_features
+        if n_months < seq_length:
+            n_months = seq_length
+        recent = flat[-n_months * n_features:]
+        recent_s = scaler.transform(recent.reshape(-1, n_features))
+        seq = recent_s[-seq_length:]
+        x = torch.tensor(seq, dtype=torch.float32).unsqueeze(0)
+        with torch.no_grad():
+            pred = nn_model(x).item()
+        return pred, {
+            "lower_80": pred * 0.8, "upper_80": pred * 1.2,
+            "lower_95": pred * 0.6, "upper_95": pred * 1.4,
+        }
+
+    if isinstance(artifact, dict) and "model" in artifact:
+        # sklearn RF model wrapped in dict
+        scaler = artifact["scaler"]
+        rf_model = artifact["model"]
+        scaled = scaler.transform(vector)
+        trees = np.array([t.predict(scaled) for t in rf_model.estimators_]).flatten()
+        total = float(np.mean(trees))
+        return total, {
+            "lower_80": float(np.percentile(trees, 10)),
+            "upper_80": float(np.percentile(trees, 90)),
+            "lower_95": float(np.percentile(trees, 2.5)),
+            "upper_95": float(np.percentile(trees, 97.5)),
+        }
+
+    # Direct sklearn model (no dict wrapper)
+    scaled = artifact["scaler"].transform(vector) if hasattr(artifact, "scaler") else vector
+    trees = np.array([t.predict(scaled) for t in artifact.estimators_]).flatten()
     total = float(np.mean(trees))
     return total, {
         "lower_80": float(np.percentile(trees, 10)),
