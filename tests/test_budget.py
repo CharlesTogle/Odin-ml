@@ -3,8 +3,10 @@ from __future__ import annotations
 
 def _budget_payload():
     return {
+        "request_id": "req-budget-1",
         "user_id": "test-user-1",
         "available_funds": 25000.0,
+        "period": {"start": "2024-01-01", "end": "2024-01-31"},
         "categories": [
             {
                 "category_id": "essentials_food",
@@ -16,7 +18,7 @@ def _budget_payload():
             },
             {
                 "category_id": "essentials_rent",
-                "restriction_level": "FIXED",
+                "restriction_level": "LOCKED",
                 "floor": 8000.0,
                 "ceiling": 8000.0,
                 "priority_weight": 0.3,
@@ -52,13 +54,14 @@ def test_budget_recommend(client):
     resp = client.post("/api/v1/budget/recommend", json=_budget_payload())
     assert resp.status_code == 200
     body = resp.json()
+    assert body["request_id"] == "req-budget-1"
     rec = body["recommendation"]
     allocations = {a["category_id"]: a["amount"] for a in rec["allocations"]}
     total = sum(allocations.values())
     assert abs(total - 25000.0) < 1.0
-    assert allocations["essentials_rent"] == 8000.0  # FIXED
+    assert allocations["essentials_rent"] == 8000.0  # LOCKED
     assert rec["utilization_rate"] > 0.99
-    assert rec["feasibility"] in ("FEASIBLE", "INFEASIBLE")
+    assert rec["feasibility"] in ("FEASIBLE", "REDUCED", "INFEASIBLE")
 
 
 def test_budget_rejects_bad_restriction(client):

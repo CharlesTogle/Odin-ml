@@ -22,7 +22,7 @@ def _run(request: BudgetRequest) -> BudgetResponse:
 
     return BudgetResponse(
         response_id=str(uuid.uuid4()),
-        request_id=request.user_id,
+        request_id=request.request_id,
         user_id=request.user_id,
         recommendation=recommendation,
         explanations=explanations if request.include_reasoning else None,

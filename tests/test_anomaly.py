@@ -8,10 +8,12 @@ def test_anomaly_detect(client):
     payload = {"user_id": "test-user-1", "transactions": txns}
     resp = client.post("/api/v1/anomaly/detect", json=payload)
     assert resp.status_code == 200
-    anomaly = resp.json()["anomaly"]
-    assert "is_anomalous" in anomaly
-    assert 0 <= anomaly["score"] <= 1
-    assert anomaly["explanation"]
+    body = resp.json()
+    assert "anomalous_transactions" in body
+    assert "overspending_transactions" in body
+    assert isinstance(body["anomalous_transactions"], list)
+    assert 0.0 <= body["confidence"] <= 1.0
+    assert body["status"] in ("SUCCESS", "FALLBACK")
 
 
 def test_anomaly_detect_batch(client):
@@ -26,3 +28,4 @@ def test_anomaly_detect_batch(client):
     assert resp.status_code == 200
     results = resp.json()["results"]
     assert len(results) == 2
+    assert all("anomalous_transactions" in r for r in results)

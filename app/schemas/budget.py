@@ -4,13 +4,18 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from app.schemas.common import ApiMetadata, ModuleStatus
+from app.schemas.common import ApiMetadata, ModuleStatus, Transaction
 
 
 class RestrictionLevel(str, Enum):
     PROTECTED = "PROTECTED"
-    FIXED = "FIXED"
+    LOCKED = "LOCKED"
     FREE = "FREE"
+
+
+class BudgetPeriod(BaseModel):
+    start: str
+    end: str
 
 
 class BudgetCategory(BaseModel):
@@ -23,10 +28,13 @@ class BudgetCategory(BaseModel):
 
 
 class BudgetRequest(BaseModel):
+    request_id: str
     user_id: str
     available_funds: float = Field(gt=0)
+    period: BudgetPeriod
     categories: list[BudgetCategory] = Field(min_length=1)
     target_ratios: dict[str, float] | None = None
+    transaction_history: list[Transaction] | None = None
     forecast: dict | None = None
     include_reasoning: bool = True
 
