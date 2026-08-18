@@ -1,5 +1,11 @@
 # Odin Project Agents Guide
 
+## Repository Access and Collaboration
+
+- `Odin` and `Odin-QA` are **read-only** to this agent. Do not modify, commit, or delete files in them; only read, search, and provide comments or suggestions.
+- This mirrors the rule that `Odin-ml` is read-only to our collaborators.
+- `Odin-ml` is the agent's own repository and remains fully writable.
+
 ## Priority: Coding Standards
 
 This section is the highest-priority project rule set. When there is any ambiguity in implementation, structure, naming, or dependency usage, follow these standards first.

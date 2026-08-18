@@ -76,13 +76,20 @@ def run_clustering_analysis(df: pd.DataFrame, output_dir: str) -> dict:
 
     results = {"features": feature_cols, "n_samples": len(X)}
 
-    # K-means: elbow + silhouette
-    k_range = range(2, 7)
+    # Subsampled set for silhouette (silhouette is O(n^2))
+    silhouette_n = min(5000, len(X))
+    rng = np.random.RandomState(42)
+    sil_idx = rng.choice(len(X_scaled), silhouette_n, replace=False)
+    X_sil = X_scaled[sil_idx]
+
+    # K-means: elbow + silhouette (include k=8 for the 2x2x2 = 8-class check)
+    k_range = range(2, 9)
     kmeans_scores = {}
     for k in k_range:
         km = KMeans(n_clusters=k, random_state=42, n_init=10)
         labels = km.fit_predict(X_scaled)
-        sil = silhouette_score(X_scaled, labels)
+        sil_labels = km.predict(X_sil)
+        sil = silhouette_score(X_sil, sil_labels)
         kmeans_scores[k] = {
             "inertia": float(km.inertia_),
             "silhouette": float(sil),
@@ -109,9 +116,9 @@ def run_clustering_analysis(df: pd.DataFrame, output_dir: str) -> dict:
     best_k_bic = min(gmm_scores, key=lambda k: gmm_scores[k]["bic"])
     results["best_k_bic"] = best_k_bic
 
-    # Binary split validation: compare k=2 vs k=4 (2x2x2 = 8 classes)
+    # Binary split validation: compare k=2 vs k=8 (2x2x2 = 8 classes)
     binary_sil = kmeans_scores.get(2, {}).get("silhouette", 0)
-    eight_sil = kmeans_scores.get(8, {}).get("silhouette", 0) if 8 in kmeans_scores else 0
+    eight_sil = kmeans_scores.get(8, {}).get("silhouette", 0)
     results["binary_vs_8class"] = {
         "k2_silhouette": binary_sil,
         "k8_silhouette": eight_sil,
@@ -142,7 +149,12 @@ def run_clustering_analysis(df: pd.DataFrame, output_dir: str) -> dict:
 
 
 def compute_overlay_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute Financial Trajectory and Financial Margin features."""
+    """Compute Financial Trajectory and Financial Margin overlay features.
+
+    Financial Margin: (Income - Expenses) / Income at each month.
+    Financial Trajectory: per-persona linear slope of the (Income - Expenses)
+    gap across months — positive slope means a widening surplus.
+    """
     df = df.copy()
 
     # Financial Margin: (Income - Expenses) / Income
@@ -152,6 +164,19 @@ def compute_overlay_features(df: pd.DataFrame) -> pd.DataFrame:
             (df["total_income"] - df["total_expenses"]) / df["total_income"],
             0.0,
         )
+
+    # Financial Trajectory: slope of the monthly savings gap per persona
+    if all(c in df.columns for c in ["persona_id", "month", "total_income", "total_expenses"]):
+        df["savings_gap"] = df["total_income"] - df["total_expenses"]
+        slopes = {}
+        for pid, g in df.groupby("persona_id"):
+            months = g["month"].values.astype(float)
+            gap = g["savings_gap"].values
+            if len(months) >= 2 and np.std(months) > 0:
+                slopes[pid] = float(np.polyfit(months, gap, 1)[0])
+            else:
+                slopes[pid] = 0.0
+        df["financial_trajectory"] = df["persona_id"].map(slopes)
 
     return df
 
@@ -270,15 +295,34 @@ def main():
         synth_df = load_processed_data(args.input)
         print(f"  Loaded {len(synth_df):,} rows from processed ({synth_df['user_id'].nunique():,} personas)")
 
-    print("\n[2/3] Running clustering analysis...")
-    clustering_results = run_clustering_analysis(synth_df, args.output)
+    print("\n[2/3] Computing overlay features...")
+    synth_df = compute_overlay_features(synth_df)
+    overlay_cols = [c for c in ["financial_margin", "financial_trajectory"]
+                    if c in synth_df.columns]
+    overlay_stats = {}
+    for c in overlay_cols:
+        vals = synth_df[c].dropna()
+        overlay_stats[c] = {
+            "mean": float(vals.mean()),
+            "std": float(vals.std()),
+            "min": float(vals.min()),
+            "max": float(vals.max()),
+        }
+    out_path = Path(args.output)
+    out_path.mkdir(parents=True, exist_ok=True)
+    synth_df[["persona_id", "month"] + overlay_cols].to_parquet(
+        out_path / "overlay_features.parquet", index=False
+    )
+    print(f"  Exported overlay features: {overlay_cols}")
 
-    print("\n[3/3] Exporting results...")
+    print("\n[3/3] Running clustering analysis...")
+    clustering_results = run_clustering_analysis(synth_df, args.output)
+    clustering_results["overlay_features"] = overlay_stats
+
+    print("  Exporting results...")
     export_threshold_candidates(clustering_results, args.output)
 
     # Save clustering results as JSON
-    out_path = Path(args.output)
-    out_path.mkdir(parents=True, exist_ok=True)
     with open(out_path / "clustering_results.json", "w") as f:
         json.dump(clustering_results, f, indent=2, default=str)
     print(f"  Exported clustering_results.json to {out_path}")

@@ -3,10 +3,10 @@
 
 Generates a comprehensive EDA report with static plots and a markdown summary.
 Covers: distributions, correlations, class balance, temporal patterns, anomaly
-analysis, and data quality for the processed feature matrices.
+analysis, and data quality for the engineered feature matrices.
 
 Usage:
-    python scripts/eda.py --input datasets/processed/ --output figures/
+    python scripts/eda.py --input datasets/engineered/ --output figures/
 """
 
 import argparse
@@ -27,10 +27,10 @@ sns.set_theme(style="whitegrid", palette="muted", font_scale=0.9)
 
 ENGINEERED_FEATURES = [
     "income_stability_cv", "obligation_ratio", "savings_rate", "debt_to_income",
-    "essential_ratio", "discretionary_ratio", "income_trend", "expense_trend",
-    "volatility_index", "category_entropy", "transaction_frequency",
-    "avg_transaction_size", "income_regularity", "expense_regularity",
-    "income_expense_gap", "essential_income_ratio", "savings_income_ratio",
+    "discretionary_ratio", "income_trend", "expense_trend", "volatility_index",
+    "category_entropy", "transaction_frequency", "avg_transaction_size",
+    "income_regularity", "expense_regularity", "income_expense_gap",
+    "essential_income_ratio",
 ]
 
 RAW_FEATURES = [
@@ -42,15 +42,21 @@ RAW_FEATURES = [
 META_COLUMNS = ["user_id", "month", "pfp_label", "is_anomalous", "anomaly_type"]
 
 PFP_CLASSES = [
-    "Stable/Flexible", "Stable/Obligated",
-    "Variable/Flexible", "Variable/Obligated",
+    "Stable/Flexible/Tolerant", "Stable/Flexible/At-Risk",
+    "Stable/Obligated/Tolerant", "Stable/Obligated/At-Risk",
+    "Variable/Flexible/Tolerant", "Variable/Flexible/At-Risk",
+    "Variable/Obligated/Tolerant", "Variable/Obligated/At-Risk",
 ]
 
 PFP_PALETTE = {
-    "Stable/Flexible": "#2ecc71",
-    "Stable/Obligated": "#3498db",
-    "Variable/Flexible": "#e67e22",
-    "Variable/Obligated": "#e74c3c",
+    "Stable/Flexible/Tolerant": "#2ecc71",
+    "Stable/Flexible/At-Risk": "#1f618d",
+    "Stable/Obligated/Tolerant": "#3498db",
+    "Stable/Obligated/At-Risk": "#8e44ad",
+    "Variable/Flexible/Tolerant": "#f1c40f",
+    "Variable/Flexible/At-Risk": "#e67e22",
+    "Variable/Obligated/Tolerant": "#e74c3c",
+    "Variable/Obligated/At-Risk": "#7f8c8d",
 }
 
 DPI = 100
@@ -75,6 +81,34 @@ def load_json(path: str) -> dict:
         return json.load(f)
 
 
+def load_feature_schema(input_dir: str) -> tuple[list[str], list[str]]:
+    path = os.path.join(input_dir, "feature_columns.json")
+    if os.path.exists(path):
+        try:
+            meta = load_json(path)
+            feats = meta.get("feature_columns")
+            raws = meta.get("raw_columns")
+            if feats and raws:
+                return list(feats), list(raws)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return ENGINEERED_FEATURES, RAW_FEATURES
+
+
+def load_embargo_months(input_dir: str) -> list[int] | None:
+    path = os.path.join(input_dir, "temporal_folds.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        folds = load_json(path)
+        if not isinstance(folds, list):
+            return None
+        months = sorted({m for fold in folds for m in fold.get("embargo_months", [])})
+        return months or None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def savefig(fig: plt.Figure, figdir: str, name: str):
     path = os.path.join(figdir, name)
     fig.savefig(path, dpi=DPI, bbox_inches="tight", facecolor="white")
@@ -86,7 +120,8 @@ def savefig(fig: plt.Figure, figdir: str, name: str):
 # Section 1: Dataset Overview
 # ---------------------------------------------------------------------------
 
-def section_overview(splits: dict[str, pd.DataFrame]) -> str:
+def section_overview(splits: dict[str, pd.DataFrame],
+                     eng_feats: list[str], raw_feats: list[str]) -> str:
     lines = ["## 1. Dataset Overview\n"]
 
     rows = []
@@ -105,7 +140,7 @@ def section_overview(splits: dict[str, pd.DataFrame]) -> str:
         "Split": "Total",
         "Rows": f"{sum(len(d) for d in splits.values()):,}",
         "Personas": f"{sum(d['user_id'].nunique() for d in splits.values()):,}",
-        "Months": 12,
+        "Months": max((d["month"].max() for d in splits.values()), default=0),
         "Memory (MB)": f"{sum(d.memory_usage(deep=True).sum() for d in splits.values()) / 1e6:.1f}",
     })
 
@@ -115,13 +150,12 @@ def section_overview(splits: dict[str, pd.DataFrame]) -> str:
         lines.append(f"| {r['Split']} | {r['Rows']} | {r['Personas']} | {r['Months']} | {r['Memory (MB)']} |")
 
     train = splits.get("train", list(splits.values())[0])
-    avail_eng = _available(train, ENGINEERED_FEATURES)
-    avail_raw = _available(train, RAW_FEATURES)
+    avail_eng = _available(train, eng_feats)
+    avail_raw = _available(train, raw_feats)
     lines.append(f"\n**Columns:** {len(avail_eng)} engineered + {len(avail_raw)} raw + {len(META_COLUMNS)} metadata = {len(avail_eng) + len(avail_raw) + len(META_COLUMNS)} total\n")
 
     all_feats = list(set(avail_eng + avail_raw))
-    if all_feats:
-        missing = train[all_feats].isnull().sum()
+    missing = train[all_feats].isnull().sum() if all_feats else pd.Series(dtype=int)
     missing = missing[missing > 0]
     if len(missing) > 0:
         lines.append("### Missing Values (Training Set)\n")
@@ -140,7 +174,8 @@ def section_overview(splits: dict[str, pd.DataFrame]) -> str:
 # Section 2: Feature Distributions
 # ---------------------------------------------------------------------------
 
-def section_distributions(splits: dict[str, pd.DataFrame], figdir: str) -> str:
+def section_distributions(splits: dict[str, pd.DataFrame], figdir: str,
+                          eng_feats: list[str]) -> str:
     lines = ["## 2. Feature Distributions\n"]
     train = splits.get("train", list(splits.values())[0])
 
@@ -160,7 +195,7 @@ def section_distributions(splits: dict[str, pd.DataFrame], figdir: str) -> str:
         return "\n".join(t)
 
     lines.append("### 2.1 Engineered Features\n")
-    eng_feats = _available(train, ENGINEERED_FEATURES)
+    avail_eng = _available(train, eng_feats)
     if eng_feats:
         lines.append(_stats_table(train[eng_feats], "engineered"))
         lines.append("")
@@ -347,10 +382,11 @@ def section_class_balance(splits: dict[str, pd.DataFrame], figdir: str) -> str:
 # Section 4: Correlation Analysis
 # ---------------------------------------------------------------------------
 
-def section_correlations(splits: dict[str, pd.DataFrame], figdir: str) -> str:
+def section_correlations(splits: dict[str, pd.DataFrame], figdir: str,
+                         eng_feats: list[str]) -> str:
     lines = ["## 4. Correlation Analysis\n"]
     train = splits.get("train", list(splits.values())[0])
-    numeric_cols = _available(train, ENGINEERED_FEATURES + RAW_FEATURES)
+    numeric_cols = _available(train, eng_feats + RAW_FEATURES)
 
     if not numeric_cols:
         lines.append("*No numeric features available for correlation analysis.*\n")
@@ -396,12 +432,13 @@ def section_correlations(splits: dict[str, pd.DataFrame], figdir: str) -> str:
         lines.append("### 4.3 High Correlation Pairs\n")
         lines.append("No feature pairs with |r| > 0.8 found.\n")
 
-    avail_eng = _available(train, ENGINEERED_FEATURES)
+    avail_eng = _available(train, eng_feats)
     if avail_eng:
         lines.append("### 4.4 Correlation with PFP Target\n")
         lines.append("Point-biserial correlation: each class encoded as 1-vs-rest.\n")
-        lines.append("| Feature | Stable/Flexible | Stable/Obligated | Variable/Flexible | Variable/Obligated |")
-        lines.append("|---------|-----------------|------------------|-------------------|--------------------|")
+        header_cols = " | ".join(c.replace("/", "-") for c in PFP_CLASSES)
+        lines.append(f"| Feature | {header_cols} |")
+        lines.append("|---------|" + "-----------------|" * len(PFP_CLASSES))
         for feat in avail_eng:
             corrs = []
             for cls in PFP_CLASSES:
@@ -436,9 +473,12 @@ def section_correlations(splits: dict[str, pd.DataFrame], figdir: str) -> str:
 # Section 5: Temporal Patterns
 # ---------------------------------------------------------------------------
 
-def section_temporal(splits: dict[str, pd.DataFrame], figdir: str) -> str:
+def section_temporal(splits: dict[str, pd.DataFrame], figdir: str,
+                     eng_feats: list[str], input_dir: str) -> str:
     lines = ["## 5. Temporal Patterns\n"]
     train = splits.get("train", list(splits.values())[0])
+
+    embargo_months = load_embargo_months(input_dir)
 
     temporal_feats = _available(train, [
         "income_stability_cv", "obligation_ratio", "savings_rate",
@@ -463,7 +503,10 @@ def section_temporal(splits: dict[str, pd.DataFrame], figdir: str) -> str:
             ax.set_xlabel("Month")
             ax.set_ylabel("Mean ± Std")
             ax.set_xticks(range(1, 13))
-            ax.axvspan(7.5, 8.5, alpha=0.1, color="red", label="Embargo" if i == 0 else "")
+            if embargo_months:
+                ax.axvspan(min(embargo_months) - 0.5, max(embargo_months) + 0.5,
+                           alpha=0.1, color="red",
+                           label="Embargo" if i == 0 else "")
             if i == 0:
                 ax.legend(fontsize=8)
         for j in range(i + 1, len(axes)):
@@ -472,7 +515,11 @@ def section_temporal(splits: dict[str, pd.DataFrame], figdir: str) -> str:
         fig.tight_layout()
         savefig(fig, figdir, "temporal_feature_means.png")
         lines.append("### 5.1 Feature Trajectories by Month\n")
-        lines.append("The red band indicates the embargo gap between training and test periods.\n")
+        if embargo_months:
+            emb = ", ".join(str(m) for m in embargo_months)
+            lines.append(f"The red band marks embargo months ({emb}) defined in temporal_folds.json, held out between training and test periods.\n")
+        else:
+            lines.append("No temporal_folds.json found; embargo band not shown.\n")
         lines.append("![Temporal Feature Means](temporal_feature_means.png)\n")
     else:
         lines.append("### 5.1 Feature Trajectories by Month\n")
@@ -482,7 +529,7 @@ def section_temporal(splits: dict[str, pd.DataFrame], figdir: str) -> str:
     month1 = train[train["month"] == 1]
     lines.append(f"Month 1 rows: {len(month1):,} ({len(month1) / len(train) * 100:.1f}% of training data)\n")
     degenerate = []
-    avail_eng = _available(train, ENGINEERED_FEATURES)
+    avail_eng = _available(train, eng_feats)
     for feat in avail_eng:
         unique_vals = month1[feat].nunique()
         if unique_vals <= 3:
@@ -630,16 +677,21 @@ def section_anomalies(splits: dict[str, pd.DataFrame], figdir: str) -> str:
 # ---------------------------------------------------------------------------
 
 def section_quality(splits: dict[str, pd.DataFrame], figdir: str,
-                    pipeline_report: dict | None = None) -> str:
+                    pipeline_report: dict | None = None,
+                    eng_feats: list[str] | None = None) -> str:
     lines = ["## 7. Data Quality Report\n"]
     train = splits.get("train", list(splits.values())[0])
+    if eng_feats is None:
+        eng_feats = ENGINEERED_FEATURES
 
+    sec = 0
+    sec += 1
+    lines.append(f"### 7.{sec} Zero-Income Rows\n")
     zero_income = (train["total_income"] == 0).sum()
     zero_pct = zero_income / len(train) * 100
-    lines.append(f"### 7.1 Zero-Income Rows\n")
     lines.append(f"**{zero_income:,} rows** ({zero_pct:.1f}%) have zero total income.\n")
     lines.append("These rows will produce extreme values in all income-ratio features "
-                 "(savings_rate, debt_to_income, essential_income_ratio, savings_income_ratio).\n")
+                 "(savings_rate, debt_to_income, essential_income_ratio).\n")
 
     zero_ratio_feats = _available(train, ["savings_rate", "debt_to_income", "essential_income_ratio"])
     if zero_ratio_feats:
@@ -669,7 +721,8 @@ def section_quality(splits: dict[str, pd.DataFrame], figdir: str,
 
     if pipeline_report and "feature_range_violations" in pipeline_report:
         violations = pipeline_report["feature_range_violations"]
-        lines.append("### 7.2 Feature Range Violations\n")
+        sec += 1
+        lines.append(f"### 7.{sec} Feature Range Violations\n")
         lines.append("Note: The reported ranges apply to raw (pre-scaling) values. "
                      "The current processed data is StandardScaler-normalized (mean≈0, std≈1).\n")
         lines.append("| Feature | Expected Range | Below Count | Above Count |")
@@ -678,8 +731,9 @@ def section_quality(splits: dict[str, pd.DataFrame], figdir: str,
             lines.append(f"| {v['feature']} | {v['expected_range']} | {v['below_count']:,} | {v['above_count']:,} |")
         lines.append("")
 
-    lines.append("### 7.3 Outlier Summary (IQR Method)\n")
-    outlier_feats = _available(train, ENGINEERED_FEATURES)[:8]
+    sec += 1
+    lines.append(f"### 7.{sec} Outlier Summary (IQR Method)\n")
+    outlier_feats = _available(train, eng_feats)[:8]
     if outlier_feats:
         outlier_data = []
         for feat in outlier_feats:
@@ -712,10 +766,11 @@ def section_quality(splits: dict[str, pd.DataFrame], figdir: str,
     else:
         lines.append("*No engineered features available for outlier analysis. Skipping.*\n")
 
-    lines.append("### 7.4 Recommendations\n")
-    lines.append("1. **Zero-income rows (15.4%):** Expected behavior — intentional zero-income months from irregular/project-based income patterns. Not a bug.")
+    sec += 1
+    lines.append(f"### 7.{sec} Recommendations\n")
+    lines.append(f"1. **Zero-income rows ({zero_pct:.1f}%):** Expected behavior — intentional zero-income months from irregular/project-based income patterns. Not a bug.")
     lines.append("2. **Skewed features:** Apply log or Box-Cox transformation to highly skewed features before linear models.")
-    lines.append("3. **Multicollinearity:** `obligation_ratio` and `essential_ratio` will diverge once obligatory expense fields (debt/loan repayments, remittances) are added. Currently identical because obligatory is TBD.")
+    lines.append("3. **Multicollinearity:** `obligation_ratio` and `essential_income_ratio` capture distinct constructs (obligation load vs essential share of income) and are currently weakly correlated (r≈0.06); monitor for divergence once obligatory expense fields (debt/loan repayments, remittances) are added.")
     lines.append("4. **Month-1 degeneracy:** Early months have limited signal; consider excluding months 1-2 from training or adding minimum-history gates.")
     lines.append("5. **Outlier capping:** The preprocessing pipeline already caps `debt_to_income` and `savings_rate` at 99th percentile; consider extending to other features.")
     lines.append("")
@@ -757,7 +812,7 @@ def main():
         description="Odin ML — Exploratory Data Analysis",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--input", type=str, default="datasets/processed/",
+    parser.add_argument("--input", type=str, default="datasets/engineered/",
                         help="Input directory with train.parquet, val.parquet, test.parquet")
     parser.add_argument("--output", type=str, default="figures/",
                         help="Output directory for report and plots")
@@ -782,26 +837,28 @@ def main():
         pipeline_report = load_json(report_path)
         print(f"  Loaded pipeline_report.json")
 
+    eng_feats, raw_feats = load_feature_schema(args.input)
+
     print("Generating Section 1: Dataset Overview...")
-    s1 = section_overview(splits)
+    s1 = section_overview(splits, eng_feats, raw_feats)
 
     print("Generating Section 2: Feature Distributions...")
-    s2 = section_distributions(splits, figdir)
+    s2 = section_distributions(splits, figdir, eng_feats)
 
     print("Generating Section 3: Class Balance Analysis...")
     s3 = section_class_balance(splits, figdir)
 
     print("Generating Section 4: Correlation Analysis...")
-    s4 = section_correlations(splits, figdir)
+    s4 = section_correlations(splits, figdir, eng_feats)
 
     print("Generating Section 5: Temporal Patterns...")
-    s5 = section_temporal(splits, figdir)
+    s5 = section_temporal(splits, figdir, eng_feats, args.input)
 
     print("Generating Section 6: Anomaly Analysis...")
     s6 = section_anomalies(splits, figdir)
 
     print("Generating Section 7: Data Quality Report...")
-    s7 = section_quality(splits, figdir, pipeline_report)
+    s7 = section_quality(splits, figdir, pipeline_report, eng_feats)
 
     sections = [s1, s2, s3, s4, s5, s6, s7]
     print("Assembling report...")
