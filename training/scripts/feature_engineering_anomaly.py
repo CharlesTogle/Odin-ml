@@ -4,8 +4,9 @@ Feature Engineering Pipeline for Anomaly Detector
 Vectorized implementation. Reads raw transactions from synth/ and produces
 per-transaction feature matrices for anomaly detection.
 
-Features (22 per transaction):
-  Baseline (8): mean/std income/expenses, category_dist, txn_frequency, avg_txn_size, category_entropy, volatility_index, spending_concentration
+Features (24 per transaction):
+  Baseline (10): mean/std income/expenses, category_dist, txn_frequency_rolling,
+                 avg_txn_size, category_entropy, volatility_index, spending_concentration
   Detection (14): amount_deviation, category_deviation, frequency_deviation,
                   income_deviation, expense_deviation,
                   is_novel_category, amount_vs_category_mean, amount_vs_category_std,
@@ -45,11 +46,11 @@ def load_data(transactions_path, splits_path):
 
 def build_category_history(txn):
     """Precompute per-persona category and income history for baseline computation."""
-    expense_mask = txn["transaction_type"] == "expense"
-    income_mask = txn["transaction_type"] == "income"
     history = {}
 
     for pid, group in txn.groupby("persona_id"):
+        expense_mask = group["transaction_type"] == "expense"
+        income_mask = group["transaction_type"] == "income"
         exp_group = group[expense_mask].sort_values("date")
         inc_group = group[income_mask].sort_values("date")
 
@@ -69,6 +70,9 @@ def build_category_history(txn):
         all_exp = exp_group.copy()
         txn_count_by_month = all_exp.groupby("month").size() if len(all_exp) > 0 else pd.Series(dtype=int)
 
+        # Expense totals by month (for monthly-level deviation)
+        monthly_expense_totals = all_exp.groupby("month")["amount"].sum() if len(all_exp) > 0 else pd.Series(dtype=float)
+
         history[pid] = {
             "months": sorted(group["month"].unique()),
             "cat_monthly_counts": cat_monthly,
@@ -80,6 +84,7 @@ def build_category_history(txn):
             "inc_monthly": inc_monthly,
             "inc_amounts": inc_amounts,
             "txn_count_by_month": txn_count_by_month,
+            "monthly_expense_totals": monthly_expense_totals,
         }
     return history
 
@@ -150,21 +155,33 @@ def compute_features_for_persona(pid, txn_row, history, baseline_months=3):
     cat_mean = float(cat_bl_amounts.mean()) if len(cat_bl_amounts) > 0 else mean_expenses
     cat_std = float(cat_bl_amounts.std()) if len(cat_bl_amounts) > 1 else std_expenses
 
-    # Detect novel categories (not in baseline)
-    novel_cats = set(cat_props.index) - set(bl_cats.columns) if hasattr(bl_cats, 'columns') else set()
-    is_novel = 1.0 if current_cat in novel_cats or current_cat not in EXPENSE_CATS else 0.0
+    # Detect novel categories: no prior spend in this category before current month
+    prior_cat_months = [m for m in cat_mons if m < current_month]
+    is_novel = 1.0 if len(prior_cat_months) == 0 else 0.0
 
     # Amount deviations
     amount_dev = (current_amount - mean_expenses) / std_expenses if std_expenses > 0 else 0.0
     amount_cat_dev = (current_amount - cat_mean) / cat_std if cat_std > 0 else 0.0
+    amount_cat_rel = (current_amount - cat_mean) / cat_mean if cat_mean > 0 else 0.0
 
     # Category deviation
     cat_prop_val = float(cat_props.get(current_cat, 0))
     cat_dev = abs(cat_prop_val - 1.0 / len(ALL_CATS))
 
-    # Category frequency change
-    current_cat_count = float(cat_sums.get(current_cat, 0))
-    cat_freq_change = current_cat_count / total_exp if total_exp > 0 else 0.0
+    # Category frequency change: current-month category count vs baseline average
+    if hasattr(bl_cats, "columns") and current_cat in bl_cats.columns:
+        cat_baseline_counts = float(bl_cats[current_cat].mean())
+    else:
+        cat_baseline_counts = 0.0
+    if hasattr(cat_monthly, "columns") and current_cat in cat_monthly.columns:
+        current_cat_count = float(
+            cat_monthly.loc[current_month, current_cat]) if current_month in cat_monthly.index else 0.0
+    else:
+        current_cat_count = 0.0
+    if cat_baseline_counts > 0:
+        cat_freq_change = (current_cat_count - cat_baseline_counts) / cat_baseline_counts
+    else:
+        cat_freq_change = float(current_cat_count)
 
     # Spending concentration (Herfindahl index)
     cat_props_arr = cat_props.values.astype(float) if hasattr(cat_props, 'values') else np.array([0.0])
@@ -189,8 +206,16 @@ def compute_features_for_persona(pid, txn_row, history, baseline_months=3):
     # Is weekend
     is_weekend = 1.0 if current_date.weekday() >= 5 else 0.0
 
-    # Transaction frequency
-    txn_freq = float(len(bl_months))
+    # Transaction frequency: mean monthly transaction count in baseline
+    txn_freq = mean_freq
+
+    # Monthly expense deviation: current month total vs baseline monthly totals
+    month_totals = h["monthly_expense_totals"]
+    bl_totals = month_totals.loc[month_totals.index.isin(bl_months)] if len(month_totals) > 0 else pd.Series(dtype=float)
+    mean_tot = float(bl_totals.mean()) if len(bl_totals) > 0 else 0.0
+    std_tot = float(bl_totals.std()) if len(bl_totals) > 1 else 0.0
+    current_tot = float(month_totals.get(current_month, 0)) if current_month in month_totals.index else 0.0
+    expense_dev = (current_tot - mean_tot) / std_tot if std_tot > 0 else 0.0
 
     return {
         # Baseline features
@@ -209,16 +234,16 @@ def compute_features_for_persona(pid, txn_row, history, baseline_months=3):
         "category_deviation": cat_dev,
         "frequency_deviation": freq_dev,
         "income_deviation": inc_dev,
-        "expense_deviation": amount_dev,
+        "expense_deviation": expense_dev,
         "is_novel_category": is_novel,
-        "amount_vs_category_mean": amount_cat_dev,
-        "amount_vs_category_std": (current_amount - cat_mean) / cat_std if cat_std > 0 else 0.0,
+        "amount_vs_category_mean": amount_cat_rel,
+        "amount_vs_category_std": amount_cat_dev,
         "category_frequency_change": cat_freq_change,
         "amount_percentile_in_category": percentile,
         "days_since_last_txn": days_since,
         "is_weekend": is_weekend,
-        "amount_zscore_overall": amount_dev,
-        "amount_zscore_category": amount_cat_dev,
+        "amount_zscore_overall": abs(amount_dev),
+        "amount_zscore_category": abs(amount_cat_dev),
     }
 
 
@@ -262,7 +287,9 @@ def main():
 
     print("[3/5] Computing features per transaction...")
     rows = []
-    for _, txn_row in txn.iterrows():
+    for idx, (_, txn_row) in enumerate(txn.iterrows()):
+        if idx % 100000 == 0 and idx > 0:
+            print(f"    {idx:,}/{len(txn):,} transactions ({time.time() - t0:.0f}s)")
         pid = txn_row["persona_id"]
         feats = compute_features_for_persona(pid, txn_row, history, args.baseline_months)
         row = {

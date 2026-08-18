@@ -4,13 +4,12 @@ Feature Engineering Pipeline for LSTM Spending Forecaster
 Reads raw transactions and monthly summaries from synth/ and produces
 daily-level feature matrices for time-series forecasting.
 
-Features (23 total per persona-day):
+Features (20 total per persona-day):
   - Temporal encoding: day-of-week sin/cos, day-of_month
   - Lag features: 1d, 7d, 14d, 15d, 30d, 60d expense lags
   - Rolling statistics: 7d, 14d, 30d mean and std of expenses
   - Calendar features: is_payday, days_to_payday
   - RFM features: recency, frequency_30d, monetary_30d
-  - STL decomposition: trend, seasonal, residual (monthly level)
 
 Usage:
     python scripts/feature_engineering_forecaster.py \
@@ -36,7 +35,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from scipy.signal import periodogram
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +67,6 @@ FORECASTER_FEATURES = [
     "recency",
     "frequency_30d",
     "monetary_30d",
-    # STL decomposition (3)
-    "stl_trend",
-    "stl_seasonal",
-    "stl_residual",
 ]
 
 META_COLUMNS = [
@@ -154,10 +148,10 @@ def build_daily_grid(persona_id: str, year: int = 2023) -> pd.DataFrame:
     return grid
 
 
-def aggregate_daily_expenses(transactions: pd.DataFrame, persona_id: str) -> pd.DataFrame:
+def aggregate_daily_expenses(persona_txns: pd.DataFrame, persona_id: str) -> pd.DataFrame:
     """Aggregate expense transactions to daily level for one persona."""
-    mask = (transactions["persona_id"] == persona_id) & (transactions["transaction_type"] == "expense")
-    persona_txns = transactions[mask].copy()
+    mask = persona_txns["transaction_type"] == "expense"
+    persona_txns = persona_txns[mask].copy()
     if persona_txns.empty:
         return pd.DataFrame(columns=["date", "daily_expense", "txn_count"])
 
@@ -210,83 +204,49 @@ def compute_rolling_features(grid: pd.DataFrame) -> pd.DataFrame:
 def compute_calendar_features(grid: pd.DataFrame) -> pd.DataFrame:
     """Payday indicators and days-to-payday."""
     dom = grid["day_of_month"].values * 31.0  # un-normalize
-    grid["is_payday"] = ((dom >= 15) & (dom <= 16)) | ((dom >= 29) & (dom <= 31))
-    grid["is_payday"] = grid["is_payday"].astype(float)
+    month = grid["month"].values
+    grid["is_payday"] = (((dom >= 15) & (dom <= 16)) | ((dom >= 29) & (dom <= 31))).astype(float)
 
     # Days to next payday (15th or last day of month)
-    days_to_payday = np.zeros(len(dom))
-    for i, d in enumerate(dom):
-        if d <= 15:
-            days_to_payday[i] = 15 - d
-        else:
-            # Days to end of month (approximate next payday)
-            days_in_month = 30 if grid["month"].values[i] in [4, 6, 9, 11] else 31
-            if grid["month"].values[i] == 2:
-                days_in_month = 28
-            days_to_payday[i] = max(0, days_in_month - d)
+    days_in_month = np.where(np.isin(month, [4, 6, 9, 11]), 30, np.where(month == 2, 28, 31))
+    days_to_payday = np.where(dom <= 15, 15 - dom, np.maximum(0, days_in_month - dom))
     grid["days_to_payday"] = days_to_payday / 30.0  # normalize
     return grid
 
 
-def compute_rfm_features(grid: pd.DataFrame, txn_dates: pd.DatetimeIndex,
+def compute_rfm_features(grid: pd.DataFrame, txn_dates: np.ndarray,
                           txn_amounts: np.ndarray) -> pd.DataFrame:
-    """RFM: recency, frequency_30d, monetary_30d."""
+    """RFM: recency, frequency_30d, monetary_30d (vectorized)."""
     n = len(grid)
     dates = grid["date"].values
 
-    recency = np.full(n, np.nan)
+    recency = np.full(n, 365.0)
     freq_30d = np.zeros(n)
     mon_30d = np.zeros(n)
 
-    for i in range(n):
-        current_date = pd.Timestamp(dates[i])
-        # Recency: days since last transaction
-        past_txns = txn_dates[txn_dates <= current_date]
-        if len(past_txns) > 0:
-            recency[i] = (current_date - past_txns[-1]).days
-        else:
-            recency[i] = 365  # no prior transactions
+    if len(txn_dates) > 0:
+        t = np.asarray(txn_dates, dtype="datetime64[ns]")
+        # Recency: days since last transaction on or before each date
+        last_idx = np.searchsorted(t, dates, side="right") - 1
+        valid = last_idx >= 0
+        if valid.any():
+            recency[valid] = (dates[valid] - t[last_idx[valid]]).astype("timedelta64[D]").astype(float)
 
         # Frequency and monetary: count and mean in last 30 days
-        window_start = current_date - pd.Timedelta(days=30)
-        mask = (txn_dates >= window_start) & (txn_dates <= current_date)
-        freq_30d[i] = mask.sum()
-        if mask.sum() > 0:
-            mon_30d[i] = txn_amounts[mask].mean()
-        else:
-            mon_30d[i] = 0.0
+        left = np.searchsorted(t, dates - np.timedelta64(30, "D"), side="left")
+        right = np.searchsorted(t, dates, side="right")
+        counts = (right - left).astype(float)
+        freq_30d = counts
+        cs = np.concatenate([[0.0], np.cumsum(txn_amounts)])
+        valid_c = counts > 0
+        sums = np.zeros(n)
+        sums[valid_c] = cs[right[valid_c]] - cs[left[valid_c]]
+        mon_30d = np.where(valid_c, sums / np.where(valid_c, counts, 1.0), 0.0)
 
     grid["recency"] = recency
     grid["frequency_30d"] = freq_30d
     grid["monetary_30d"] = mon_30d
     return grid
-
-
-def compute_stl_decomposition(monthly_expenses: np.ndarray) -> dict:
-    """STL-like decomposition at monthly level using moving average."""
-    n = len(monthly_expenses)
-    if n < 4:
-        return {"trend": np.zeros(n), "seasonal": np.zeros(n), "residual": np.zeros(n)}
-
-    # Trend: centered moving average with window 3
-    trend = np.zeros(n)
-    for i in range(n):
-        lo = max(0, i - 1)
-        hi = min(n, i + 2)
-        trend[i] = np.mean(monthly_expenses[lo:hi])
-
-    # Detrended
-    detrended = monthly_expenses - trend
-
-    # Seasonal: average of same month position (since we have 12 months = 1 cycle)
-    seasonal = np.zeros(n)
-    for i in range(n):
-        seasonal[i] = detrended[i]  # with 12 months, seasonal = detrended component
-
-    # Residual
-    residual = monthly_expenses - trend - seasonal
-
-    return {"trend": trend, "seasonal": seasonal, "residual": residual}
 
 
 def compute_monthly_target(summaries: pd.DataFrame, persona_id: str) -> pd.Series:
@@ -301,12 +261,11 @@ def compute_monthly_target(summaries: pd.DataFrame, persona_id: str) -> pd.Serie
 # Per-Persona Pipeline
 # ---------------------------------------------------------------------------
 
-def process_persona(persona_id: str, transactions: pd.DataFrame,
+def process_persona(persona_id: str, persona_txns: pd.DataFrame,
                      summaries: pd.DataFrame, train_imputation: Optional[dict] = None,
                      is_train: bool = True) -> pd.DataFrame:
     """Process one persona: build daily grid, compute all features, return DataFrame."""
-    # Get this persona's transactions
-    persona_txns = transactions[transactions["persona_id"] == persona_id].copy()
+    # persona_txns is already filtered to this persona; skip if no expense data
     if persona_txns.empty:
         return pd.DataFrame()
 
@@ -314,7 +273,7 @@ def process_persona(persona_id: str, transactions: pd.DataFrame,
     grid = build_daily_grid(persona_id)
 
     # Aggregate daily expenses
-    daily_exp = aggregate_daily_expenses(transactions, persona_id)
+    daily_exp = aggregate_daily_expenses(persona_txns, persona_id)
 
     # Merge daily expenses into grid
     grid = grid.merge(daily_exp, on="date", how="left")
@@ -334,44 +293,22 @@ def process_persona(persona_id: str, transactions: pd.DataFrame,
     grid = compute_calendar_features(grid)
 
     if len(txn_dates) > 0:
-        grid = compute_rfm_features(grid, pd.DatetimeIndex(txn_dates), txn_amounts)
+        grid = compute_rfm_features(grid, txn_dates, txn_amounts)
     else:
         grid["recency"] = 365.0
         grid["frequency_30d"] = 0.0
         grid["monetary_30d"] = 0.0
 
-    # STL decomposition from monthly summaries
-    persona_summ = summaries[summaries["persona_id"] == persona_id].sort_values("month")
-    monthly_expenses = persona_summ["total_expenses"].values if len(persona_summ) > 0 else np.zeros(12)
-
-    # Ensure we have exactly 12 months
-    if len(monthly_expenses) < 12:
-        monthly_expenses = np.pad(monthly_expenses, (0, 12 - len(monthly_expenses)))
-    elif len(monthly_expenses) > 12:
-        monthly_expenses = monthly_expenses[:12]
-
-    stl = compute_stl_decomposition(monthly_expenses)
-
-    # Map STL to daily level (broadcast monthly value to each day)
-    grid["stl_trend"] = grid["month"].map(
-        {m + 1: stl["trend"][m] for m in range(12)}
-    ).fillna(0.0)
-    grid["stl_seasonal"] = grid["month"].map(
-        {m + 1: stl["seasonal"][m] for m in range(12)}
-    ).fillna(0.0)
-    grid["stl_residual"] = grid["month"].map(
-        {m + 1: stl["residual"][m] for m in range(12)}
-    ).fillna(0.0)
-
-    # Target: next month total expenses
-    target_map = {m: total for m, total in zip(
-        persona_summ["month"].values, persona_summ["total_expenses"].values
-    )}
+    # Target: next month total expenses (NaN when no next month exists)
+    persona_summ = summaries.sort_values("month") if not summaries.empty else pd.DataFrame()
+    target_map = {}
+    if not persona_summ.empty:
+        target_map = {m: total for m, total in zip(
+            persona_summ["month"].values, persona_summ["total_expenses"].values
+        )}
     grid["target_expenses"] = grid["month"].map(
-        {m: target_map.get(m + 1, 0.0) for m in range(1, 13)}
+        {m: target_map.get(m + 1, np.nan) for m in range(1, 13)}
     )
-    # For month 12, target is 0 (no month 13)
-    grid.loc[grid["month"] == 12, "target_expenses"] = 0.0
 
     # Add metadata
     grid["user_id"] = persona_id
@@ -423,70 +360,85 @@ def run_pipeline(config: ForecasterEngineeringConfig) -> ForecasterEngineeringRe
 
     print(f"  Train: {len(train_ids)}, Val: {len(val_ids)}, Test: {len(test_ids)}")
 
-    # Process each split
-    all_splits = {}
-    for split_name, persona_ids in [("train", train_ids), ("val", val_ids), ("test", test_ids)]:
-        print(f"\n[2/6] Processing {split_name} split ({len(persona_ids)} personas)...")
-        dfs = []
-        for i, pid in enumerate(persona_ids):
-            if (i + 1) % 50 == 0 or i == 0:
-                print(f"  Processing persona {i+1}/{len(persona_ids)}: {pid}")
-            df = process_persona(pid, transactions, summaries)
-            if not df.empty:
-                dfs.append(df)
-        all_splits[split_name] = dfs
+    # Pre-partition transactions/summaries by persona once (avoids full-df scans per persona)
+    groups = {pid: g for pid, g in transactions.groupby("persona_id")}
+    summary_groups = {pid: g for pid, g in summaries.groupby("persona_id")}
+    empty_txn = pd.DataFrame(columns=transactions.columns)
 
-    # Compute imputation from train only
-    print("\n[3/6] Computing imputation values from train split...")
-    train_imputation = compute_train_imputation(all_splits["train"])
+    # Phase 1: Process train split, compute imputation, export, free memory
+    print(f"\n[2a] Processing train split ({len(train_ids)} personas)...")
+    train_dfs = []
+    for i, pid in enumerate(train_ids):
+        if (i + 1) % 100 == 0 or i == 0:
+            print(f"  Train persona {i+1}/{len(train_ids)}: {pid} ({time.time()-start_time:.0f}s)")
+        persona_txns = groups.get(pid, empty_txn)
+        persona_summ = summary_groups.get(pid, pd.DataFrame())
+        df = process_persona(pid, persona_txns, persona_summ)
+        if not df.empty:
+            train_dfs.append(df)
+
+    print("\n[2b] Computing imputation from train split...")
+    train_imputation = compute_train_imputation(train_dfs)
     report.imputation_values = {k: round(v, 6) for k, v in train_imputation.items()}
 
-    # Apply imputation and export
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for split_name in ["train", "val", "test"]:
-        dfs = all_splits[split_name]
+    # Export train split
+    print("[2c] Exporting train split...")
+    combined = pd.concat(train_dfs, ignore_index=True)
+    del train_dfs
+    combined = apply_imputation(combined, train_imputation)
+    combined["has_target"] = (~combined["target_expenses"].isna()).astype(float)
+    output_cols = META_COLUMNS + FORECASTER_FEATURES + ["has_target"]
+    combined = combined[[c for c in output_cols if c in combined.columns]]
+    report.n_rows["train"] = len(combined)
+    combined.to_parquet(output_dir / "train.parquet", index=False)
+    print(f"  Exported {len(combined)} train rows")
+
+    # Feature stats from train
+    print("[2d] Computing feature statistics...")
+    for feat in FORECASTER_FEATURES:
+        if feat in combined.columns:
+            report.feature_stats[feat] = {
+                "mean": round(float(combined[feat].mean()), 4),
+                "std": round(float(combined[feat].std()), 4),
+                "min": round(float(combined[feat].min()), 4),
+                "max": round(float(combined[feat].max()), 4),
+            }
+    report.n_features = len(FORECASTER_FEATURES)
+    del combined
+
+    # Phase 2-3: Process val and test splits one at a time
+    for split_name, persona_ids in [("val", val_ids), ("test", test_ids)]:
+        print(f"\n[3] Processing {split_name} split ({len(persona_ids)} personas)...")
+        dfs = []
+        for i, pid in enumerate(persona_ids):
+            if (i + 1) % 100 == 0 or i == 0:
+                print(f"  {split_name} persona {i+1}/{len(persona_ids)}: {pid}")
+            persona_txns = groups.get(pid, empty_txn)
+            persona_summ = summary_groups.get(pid, pd.DataFrame())
+            df = process_persona(pid, persona_txns, persona_summ)
+            if not df.empty:
+                dfs.append(df)
+
         if not dfs:
             print(f"  WARNING: No data for {split_name} split")
             continue
 
-        print(f"\n[4/6] Exporting {split_name} split...")
+        print(f"[4] Exporting {split_name} split...")
         combined = pd.concat(dfs, ignore_index=True)
-
-        # Apply imputation
+        del dfs
         combined = apply_imputation(combined, train_imputation)
-
-        # Drop rows where target is 0 (month 12 has no target)
-        # Keep them for feature computation but mark them
-        combined["has_target"] = (combined["target_expenses"] > 0).astype(float)
-
-        # Select final columns
-        output_cols = META_COLUMNS + FORECASTER_FEATURES + ["has_target"]
+        combined["has_target"] = (~combined["target_expenses"].isna()).astype(float)
         combined = combined[[c for c in output_cols if c in combined.columns]]
-
-        # Export
-        out_path = output_dir / f"{split_name}.parquet"
-        combined.to_parquet(out_path, index=False)
         report.n_rows[split_name] = len(combined)
-        print(f"  Exported {len(combined)} rows to {out_path}")
-
-    # Feature statistics
-    print("\n[5/6] Computing feature statistics...")
-    train_combined = pd.concat(all_splits["train"], ignore_index=True)
-    train_combined = apply_imputation(train_combined, train_imputation)
-    for feat in FORECASTER_FEATURES:
-        if feat in train_combined.columns:
-            report.feature_stats[feat] = {
-                "mean": round(float(train_combined[feat].mean()), 4),
-                "std": round(float(train_combined[feat].std()), 4),
-                "min": round(float(train_combined[feat].min()), 4),
-                "max": round(float(train_combined[feat].max()), 4),
-            }
-    report.n_features = len(FORECASTER_FEATURES)
+        combined.to_parquet(output_dir / f"{split_name}.parquet", index=False)
+        print(f"  Exported {len(combined)} {split_name} rows")
+        del combined
 
     # Export metadata
-    print("\n[6/6] Exporting metadata...")
+    print("\n[5] Exporting metadata...")
     metadata = {
         "timestamp": report.timestamp,
         "n_personas": report.n_personas,
