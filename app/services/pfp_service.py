@@ -8,15 +8,38 @@ from app.schemas.pfp import PFPClassification, PFPClassifyRequest
 from app.services.features import pfp_feature_vector
 
 
-def _calibrated_scores(vector: np.ndarray, feature_cols: list[str]) -> dict[str, float]:
-    values = {name: float(vector[0][i]) for i, name in enumerate(feature_cols)}
-    stability_cv = values.get("income_stability_cv", 1.0)
-    obligation = values.get("obligation_ratio", 0.5)
-    savings_rate = values.get("savings_rate", 0.0)
+def _mdd_label(model_label: str) -> str:
+    """Map model prediction label to MDD underscore format.
 
-    stability = max(0.0, min(1.0, 1.0 - stability_cv / 0.5))
-    weight = max(0.0, min(1.0, obligation))
-    tolerance = max(0.0, min(1.0, savings_rate / 0.5))
+    Model classes use slash and hyphen: ``Stable/Flexible/At-Risk``
+    MDD contract uses underscores: ``STABLE_FLEXIBLE_AT_RISK``
+    """
+    return model_label.replace("/", "_").replace("-", "_").upper()
+
+
+def _calibrated_scores(classes: np.ndarray, proba: np.ndarray) -> dict[str, float]:
+    """Derive calibrated dimension scores from model predict_proba.
+
+    For the 3 binary PFP dimensions, marginalise the multiclass
+    probability over each dimension's positive value:
+      - stability_score = Σ P(class) for classes starting with "Stable"
+      - weight_score    = Σ P(class) for classes containing "Obligated"
+      - tolerance_score = Σ P(class) for classes containing "Tolerant"
+
+    The resulting scores are properly calibrated probabilities derived
+    from the model's own probabilistic output, consistent with the
+    MDD requirement for calibrated scores.
+    """
+    class_labels = [str(c) for c in classes]
+    stability = sum(
+        p for c, p in zip(class_labels, proba) if c.startswith("Stable")
+    )
+    weight = sum(
+        p for c, p in zip(class_labels, proba) if "Obligated" in c
+    )
+    tolerance = sum(
+        p for c, p in zip(class_labels, proba) if "Tolerant" in c
+    )
     return {
         "stability": round(stability, 4),
         "weight": round(weight, 4),
@@ -28,14 +51,15 @@ def classify_standard(model: ModuleModel, request: PFPClassifyRequest) -> PFPCla
     transactions = request.payload.get("historical_transactions") or []
     vector = pfp_feature_vector(transactions, model.feature_columns)
 
-    estimator = model.model
-    prediction = str(estimator.predict(vector)[0])
+    artifact = model.model
+    estimator = artifact.get("model", artifact) if isinstance(artifact, dict) else artifact
+    prediction_raw = str(estimator.predict(vector)[0])
     proba = estimator.predict_proba(vector)[0]
-    classes = list(estimator.classes_)
+    classes = estimator.classes_
 
-    scores = _calibrated_scores(vector, model.feature_columns)
+    scores = _calibrated_scores(classes, proba)
     return PFPClassification(
-        prediction=prediction,
+        prediction=_mdd_label(prediction_raw),
         financial_stability_score=scores["stability"],
         financial_weight_score=scores["weight"],
         financial_tolerance_score=scores["tolerance"],
@@ -69,7 +93,7 @@ def classify_questionnaire(request: PFPClassifyRequest) -> PFPClassification:
 
     confidence = round(max(stability, weight, tolerance), 4)
     return PFPClassification(
-        prediction=prediction,
+        prediction=_mdd_label(prediction),
         financial_stability_score=round(stability, 4),
         financial_weight_score=round(weight, 4),
         financial_tolerance_score=round(tolerance, 4),

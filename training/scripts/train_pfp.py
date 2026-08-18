@@ -388,7 +388,7 @@ def train_tier3_svm(X_train: np.ndarray, y_train: np.ndarray) -> dict:
         X_sub = X_scaled
         y_sub = y_train
 
-    model = SVC(kernel="rbf", random_state=42)
+    model = SVC(kernel="rbf", random_state=42, probability=True)
     model.fit(X_sub, y_sub)
     return {"model": model, "scaler": scaler}
 

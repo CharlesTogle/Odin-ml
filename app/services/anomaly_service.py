@@ -2,24 +2,16 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-import torch.nn as nn
 
-from app.models.artifact_classes import _Autoencoder
 from app.models.registry import ModuleModel
-from app.schemas.anomaly import AnomalyRequest, AnomalyResult
+from app.schemas.anomaly import (
+    AnomalousTransaction,
+    AnomalyRequest,
+    AnomalyResponse,
+    OverspendingTransaction,
+    WhitelistEntry,
+)
 from app.services.features import anomaly_feature_vectors
-
-ANOMALY_FEATURE_COLS = [
-    "mean_income_rolling", "std_income_rolling",
-    "mean_expenses_rolling", "std_expenses_rolling",
-    "category_dist", "txn_frequency_rolling", "avg_txn_size_rolling",
-    "category_entropy", "volatility_index", "spending_concentration",
-    "amount_deviation", "category_deviation", "frequency_deviation",
-    "income_deviation", "expense_deviation", "is_novel_category",
-    "amount_vs_category_mean", "amount_vs_category_std",
-    "category_frequency_change", "amount_percentile_in_category",
-    "days_since_last_txn", "is_weekend", "amount_zscore_overall", "amount_zscore_category",
-]
 
 DEFAULT_THRESHOLD = 0.0117
 
@@ -44,46 +36,94 @@ def _normalize(scores: np.ndarray) -> np.ndarray:
     lo, hi = float(scores.min()), float(scores.max())
     if hi - lo < 1e-8:
         return np.zeros_like(scores, dtype=float)
-    return (scores - lo) / (hi - lo)
+    return (scores - lo) / (hi - lo + 1e-8)
 
 
-def _explain(transaction: dict, score: float, threshold: float) -> list[str]:
-    reasons = []
-    amount = float(transaction["amount"])
+def _explanation(txn: dict, score: float, threshold: float) -> tuple[str, list[str]]:
+    """Return (reason, feature_contributions) for a single transaction."""
+    reason_parts = []
+    contributions = []
+    amount = float(txn["amount"])
     if score >= threshold:
-        reasons.append("Reconstruction error above the detection threshold")
-    category = str(transaction.get("category", "unknown"))
+        reason_parts.append("Reconstruction error above the detection threshold")
+
+    category = str(txn.get("category", "unknown"))
     if category not in {"food", "housing", "transport", "health", "education", "other"}:
-        reasons.append("Unusual merchant category")
+        reason_parts.append("Unusual merchant category")
+        contributions.append(f"category:{category}")
     if amount > 2000.0:
-        reasons.append("Transaction amount exceeds typical single-spend size")
-    return reasons or ["No anomaly signals detected"]
+        reason_parts.append("Transaction amount exceeds typical single-spend size")
+        contributions.append(f"amount:{amount:.0f}")
+
+    reason = "; ".join(reason_parts) if reason_parts else "No anomaly signals detected"
+    return reason, contributions
 
 
-def detect(module: ModuleModel, request: AnomalyRequest) -> list[AnomalyResult]:
-    """Score each transaction; target = the most recent transaction.
+def _whitelisted(txn: dict, whitelist: list[WhitelistEntry] | None) -> bool:
+    if not whitelist:
+        return False
+    txn_id = str(txn.get("transaction_id") or "")
+    category = str(txn.get("category", "")).lower()
+    for entry in whitelist:
+        if entry.transaction_id and txn_id and entry.transaction_id == txn_id:
+            return True
+        if entry.category and category == entry.category.lower():
+            return True
+    return False
 
-    The trained detector emits anomaly scores per feature vector; the serving
-    endpoint returns one result per submitted transaction, marking the newest
-    one as the detection target (consistent with the on-transaction trigger).
-    """
+
+def _overspending_detect(
+    transactions: list[dict],
+    budget_allocations: list[dict],
+) -> list[OverspendingTransaction]:
+    """Rule-based overspending detection: category spend vs budget."""
+    budget_map = {b["category_id"]: b["budget_amount"] for b in budget_allocations}
+    category_totals: dict[str, float] = {}
+    for txn in transactions:
+        if txn.get("transaction_type") != "expense":
+            continue
+        cat = txn.get("category", "other")
+        category_totals[cat] = category_totals.get(cat, 0.0) + float(txn["amount"])
+
+    results = []
+    for cat, total in category_totals.items():
+        budget = budget_map.get(cat, budget_map.get(f"essentials_{cat}", budget_map.get(f"discretionary_{cat}")))
+        if budget is None:
+            continue
+            if total > budget:
+                for txn in transactions:
+                    if txn.get("category") == cat and txn.get("transaction_type") == "expense":
+                        results.append(OverspendingTransaction(
+                            transaction_id=str(txn.get("transaction_id") or ""),
+                            budget_excess=round(float(txn["amount"]) * (1 - budget / total), 2),
+                            category=cat,
+                        ))
+    return results
+
+
+def detect(module: ModuleModel, request: AnomalyRequest) -> list[AnomalousTransaction]:
+    """Score each transaction; target = the most recent transaction."""
     transactions = [t.model_dump() for t in request.transactions]
-    _, feature_frame = anomaly_feature_vectors(transactions)
+
+    # Apply whitelist filtering
+    txns_for_scoring = [t for t in transactions if not _whitelisted(t, request.whitelist)]
+
+    _, feature_frame = anomaly_feature_vectors(txns_for_scoring)
     if feature_frame.empty:
         raise ValueError("anomaly detection requires baseline transaction history")
 
-    X = feature_frame[ANOMALY_FEATURE_COLS].values.astype(np.float32)
+    X = feature_frame[module.feature_columns].values.astype(np.float32)
     scores = _normalize(_score(module, X))
+    threshold = module.threshold if module.threshold is not None else DEFAULT_THRESHOLD
 
     results = []
-    for i, txn in enumerate(transactions):
+    for i, txn in enumerate(txns_for_scoring):
         score = float(scores[i]) if i < len(scores) else 0.0
-        threshold = DEFAULT_THRESHOLD
-        results.append(AnomalyResult(
+        reason, contribs = _explanation(txn, score, threshold)
+        results.append(AnomalousTransaction(
             transaction_id=str(txn.get("transaction_id") or i),
-            is_anomalous=score >= threshold,
-            score=round(score, 4),
-            threshold=threshold,
-            explanation=_explain(txn, score, threshold),
+            anomaly_score=round(score, 4),
+            reason=reason,
+            feature_contributions=contribs,
         ))
     return results

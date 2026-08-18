@@ -12,7 +12,8 @@ def test_pfp_standard_classify(client):
     body = resp.json()
     classification = body["classification"]
     assert classification["status"] == "SUCCESS"
-    assert "/" in classification["prediction"]
+    assert "_" in classification["prediction"]  # MDD underscore format
+    assert classification["prediction"] == classification["prediction"].upper()
     assert 0 <= classification["confidence"] <= 1
     for key in ("financial_stability_score", "financial_weight_score",
                 "financial_tolerance_score"):
@@ -34,7 +35,7 @@ def test_pfp_questionnaire_classify(client):
     resp = client.post("/api/v1/pfp/classify", json=payload)
     assert resp.status_code == 200
     classification = resp.json()["classification"]
-    assert classification["prediction"] == "Variable/Obligated/At-Risk"
+    assert classification["prediction"] == "VARIABLE_OBLIGATED_AT_RISK"
     assert classification["status"] == "SUCCESS"
 
 
