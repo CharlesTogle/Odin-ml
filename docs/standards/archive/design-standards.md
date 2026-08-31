@@ -1,3 +1,5 @@
+> **Deprecated in this repository.** This is a frontend UI design-system standard for the `odin` application. It does not apply to Odin-ML, which is a Python/FastAPI service. Retained for historical reference and for use in the `odin` application repository.
+
 # Design System Strategy: The Private Vault
 
 This design system is crafted to evoke the quiet confidence of a high-end family office. It rejects the frantic, "gamified" aesthetics of traditional fintech in favor of an editorial, high-trust experience. We are building a "Digital Vault"—an environment that feels expensive, secure, and profoundly calm.

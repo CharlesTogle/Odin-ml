@@ -238,7 +238,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 ## Recommended Next Steps
 
-- Add per-module `Dockerfile` + `docker-compose.yml` (ports 8000–8005) matching `deployment-architecture.md` v1.1
+- Add per-module `Dockerfile` + `docker-compose.yml` (ports 8000–8005) matching `../Odin-Paper/docs/ml/1_problem-statement/deployment-architecture.md` v1.1
 - Add model artifact versioning (training-data hash + feature columns) to `training/models/*/metadata.json`
 - Wire the Budget Optimizer to forecast + PFP outputs (end-to-end `/api/v1/analyze`)
 - Persist prediction history for `/user/{id}/history` and `/latest` endpoints

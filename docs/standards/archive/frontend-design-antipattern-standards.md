@@ -1,3 +1,5 @@
+> **Deprecated in this repository.** This is a frontend UI anti-pattern standard for the `odin` application. It does not apply to Odin-ML, which is a Python/FastAPI service. Retained for historical reference and for use in the `odin` application repository.
+
 # Frontend Design Anti-Pattern Standards
 
 Derived from a recursive inspection of the live pages linked from `https://impeccable.style/slop/`, including the main catalog, the `/docs/impeccable` guidance, and all 11 specimen pages under `/antipattern-examples/`.

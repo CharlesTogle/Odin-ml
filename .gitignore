@@ -35,7 +35,6 @@ figures/
 # Generated pipeline outputs (regenerate with training scripts)
 training/datasets/
 training/synth/
-training/training/
 training/models/
 
 # Raw datasets (regenerate with training scripts)
