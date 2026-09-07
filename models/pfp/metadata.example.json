@@ -1,0 +1,20 @@
+{
+  "model_id": "pfp-v1.0.0",
+  "family": "pfp",
+  "created_at": "2026-09-07T00:00:00Z",
+  "training_commit": "<git sha of training code>",
+  "training_data_hash": "<sha256 of source parquet or feature matrix>",
+  "framework": "scikit-learn",
+  "framework_version": "1.9.0",
+  "python_version": "3.14.4",
+  "artifacts": ["pfp_classifier.joblib"],
+  "feature_columns": ["income_stability_cv", "obligation_ratio", "..."],
+  "metrics": {
+    "primary": {"name": "macro_f1", "value": 0.675, "folds": 5},
+    "secondary": {"accuracy": 0.678}
+  },
+  "decision_rule": "winner must beat tier1_rule_based by 0.02 macro-F1",
+  "winner_reason": "<family-level preference chain: primary metric -> interpretability -> artifact size -> integration effort>",
+  "fitted": true,
+  "serving_note": "loaded by app/models/loader.py"
+}

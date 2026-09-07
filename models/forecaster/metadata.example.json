@@ -1,0 +1,20 @@
+{
+  "model_id": "forecaster-v1.0.0",
+  "family": "forecaster",
+  "created_at": "2026-09-07T00:00:00Z",
+  "training_commit": "<git sha of training code>",
+  "training_data_hash": "<sha256 of source parquet or feature matrix>",
+  "framework": "scikit-learn",
+  "framework_version": "1.9.0",
+  "python_version": "3.14.4",
+  "artifacts": ["forecaster.joblib"],
+  "feature_columns": ["total_expenses", "food_expense", "..."],
+  "metrics": {
+    "primary": {"name": "mape_reduction_vs_naive", "value": 0.20, "folds": 5},
+    "secondary": {"mae": 0.0, "smape": 0.0, "mda": 0.0, "rmse": 0.0}
+  },
+  "decision_rule": "winner must beat naive baseline by 0.20 MAPE reduction",
+  "winner_reason": "<family-level preference chain: primary metric -> interpretability -> artifact size -> integration effort>",
+  "fitted": true,
+  "serving_note": "loaded by app/models/loader.py"
+}
