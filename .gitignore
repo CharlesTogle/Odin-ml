@@ -29,20 +29,13 @@ dist/
 !.env.example
 !.env*.example
 
-# EDA generated plots (regenerate with scripts/eda.py)
-figures/
-
-# Generated pipeline outputs (regenerate with training scripts)
+# Generated datasets and pipeline outputs (regenerate with training scripts).
+# NOTE: the top-level `models/` directory (new-scope FINAL artifacts +
+# metadata.json) is intentionally tracked and must NOT be ignored.
 training/datasets/
 training/synth/
 training/models/
-
-# Raw datasets (regenerate with training scripts)
-raw-datasets/
-
-# Synthesized data (regenerate with training scripts)
-synth-personas/
-synth-transactions/
+training/figures/
 
 # Platform and editor noise
 .DS_Store
