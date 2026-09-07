@@ -1,14 +1,17 @@
 """
-Training Pipeline for LSTM Spending Forecaster
+Training Pipeline for the Spending Forecaster
 
-Trains and compares Tier 2-3 regressors for monthly expense forecasting
-using temporal walk-forward evaluation.
+Trains and compares the lightest tier of regressors for monthly expense
+forecasting using temporal walk-forward evaluation.
 
-Tiers:
-  Tier 2: Random Forest Regressor (monthly aggregated features)
-  Tier 3a: LSTM (daily feature sequences) — PyTorch
-  Tier 3b: GRU (daily feature sequences) — PyTorch
-  Tier 3c: BiLSTM (daily feature sequences) — PyTorch
+Scope (top-3-lightest, per docs/models/model-candidate-report.md §5):
+  Baseline: naive / trailing-mean (FO-02 cold start)
+  Tier 2:   Random Forest regressor (monthly aggregated features)
+  Tier 3a:  ARIMA (pooled, user-normalized monthly expense series) — statsmodels
+  Tier 3b:  GRU (daily feature sequences) — PyTorch
+
+Heavier candidates (LSTM, BiLSTM, hybrid) are documented as "hold" in the
+roster and are not trained in the default scope.
 
 Evaluation:
   - 5-fold expanding window (temporal_folds.json); embargo months excluded from
@@ -18,18 +21,18 @@ Evaluation:
   - Decision rule: best model must beat naive baseline by 20% MAPE reduction
 
 Usage:
-    python scripts/train_forecaster.py --input datasets/forecaster/ --output models/forecaster/
+    python training/scripts/train_forecaster.py --input training/datasets/forecaster/ --output models/forecaster/
 """
 
 import argparse
 import json
-import sys
+import os
 import time
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import joblib
 import numpy as np
@@ -38,8 +41,17 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 
-import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
+import sys
+
+# Ensure the repo root is importable so `app.ml.*` resolves when this script is
+# run directly (python training/scripts/train_forecaster.py). Required for a
+# self-contained, replicable training pipeline.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.ml.metadata import build_metadata, framework_version_of, write_metadata
+from app.ml.models import _SequenceForecaster
 
 HAS_PYTORCH = False
 torch = None
@@ -47,14 +59,26 @@ try:
     import torch
     import torch.nn as nn
     from torch.utils.data import DataLoader, TensorDataset
+
     HAS_PYTORCH = True
 except ImportError:
-    warnings.warn("torch unavailable — Tier 3 (LSTM/GRU/BiLSTM) will be skipped")
+    warnings.warn("torch unavailable — Tier 3 (GRU) will be skipped")
+
+HAS_STATSMODELS = False
+ARIMA = None
+try:
+    from statsmodels.tsa.arima.model import ARIMA
+
+    HAS_STATSMODELS = True
+except ImportError:
+    warnings.warn("statsmodels unavailable — Tier 3 (ARIMA) will be skipped")
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -65,21 +89,44 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 FORECASTER_FEATURES = [
-    "day_of_week_sin", "day_of_week_cos", "day_of_month",
-    "lag_1d", "lag_7d", "lag_14d", "lag_15d", "lag_30d", "lag_60d",
-    "rolling_mean_7d", "rolling_std_7d",
-    "rolling_mean_14d", "rolling_std_14d",
-    "rolling_mean_30d", "rolling_std_30d",
-    "is_payday", "days_to_payday",
-    "recency", "frequency_30d", "monetary_30d",
+    "day_of_week_sin",
+    "day_of_week_cos",
+    "day_of_month",
+    "lag_1d",
+    "lag_7d",
+    "lag_14d",
+    "lag_15d",
+    "lag_30d",
+    "lag_60d",
+    "rolling_mean_7d",
+    "rolling_std_7d",
+    "rolling_mean_14d",
+    "rolling_std_14d",
+    "rolling_mean_30d",
+    "rolling_std_30d",
+    "is_payday",
+    "days_to_payday",
+    "recency",
+    "frequency_30d",
+    "monetary_30d",
 ]
 
-META_COLUMNS = ["user_id", "date", "month", "year", "target_expenses",
-                "has_transaction", "has_target"]
+META_COLUMNS = [
+    "user_id",
+    "date",
+    "month",
+    "year",
+    "target_expenses",
+    "has_transaction",
+    "has_target",
+]
 
 PRE_REGISTERED_MAPE_REDUCTION = 0.20  # 20% MAPE reduction vs naive
 
 SEQ_LENGTH = 30  # days lookback for LSTM
+
+ARIMA_ORDER = (1, 1, 0)
+ARIMA_MIN_HISTORY = 6  # months required from a user before ARIMA applies
 
 
 @dataclass
@@ -106,6 +153,7 @@ class TrainingReport:
 # ---------------------------------------------------------------------------
 # Data Loading
 # ---------------------------------------------------------------------------
+
 
 def load_forecaster_data(input_dir: str) -> dict:
     input_path = Path(input_dir)
@@ -135,6 +183,7 @@ def load_feature_columns(input_dir: str) -> dict:
 # Feature Aggregation
 # ---------------------------------------------------------------------------
 
+
 def aggregate_to_monthly(df: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     """Aggregate daily features to monthly level."""
     agg_dict = {}
@@ -149,9 +198,12 @@ def aggregate_to_monthly(df: pd.DataFrame, feature_cols: list) -> pd.DataFrame:
     return monthly
 
 
-def prepare_monthly_sequences(monthly_df: pd.DataFrame, feature_cols: list,
-                               lookback: int = 3,
-                               filter_months: Optional[list] = None) -> tuple:
+def prepare_monthly_sequences(
+    monthly_df: pd.DataFrame,
+    feature_cols: list,
+    lookback: int = 3,
+    filter_months: list | None = None,
+) -> tuple:
     """Create sequences for LSTM: past N months of features -> next month target.
 
     A sample is built from the row in month M (target month M+1): features span
@@ -172,19 +224,24 @@ def prepare_monthly_sequences(monthly_df: pd.DataFrame, feature_cols: list,
                 continue
             target_month = int(months[i]) + 1
             if filter_months is None or target_month in filter_months:
-                X_seq.append(features[i - lookback + 1:i + 1])
+                X_seq.append(features[i - lookback + 1 : i + 1])
                 y_seq.append(targets[i])
                 y_prev.append(targets[i - 1])
                 meta.append({"user_id": uid, "month": target_month})
 
     if not X_seq:
         return np.array([]), np.array([]), [], np.array([])
-    return (np.array(X_seq, dtype=np.float32), np.array(y_seq, dtype=np.float32),
-            meta, np.array(y_prev, dtype=np.float32))
+    return (
+        np.array(X_seq, dtype=np.float32),
+        np.array(y_seq, dtype=np.float32),
+        meta,
+        np.array(y_prev, dtype=np.float32),
+    )
 
 
-def prepare_flat_features(monthly_df: pd.DataFrame, feature_cols: list,
-                          filter_months: Optional[list] = None) -> tuple:
+def prepare_flat_features(
+    monthly_df: pd.DataFrame, feature_cols: list, filter_months: list | None = None
+) -> tuple:
     """Create flat feature matrix for RF: past N months flattened.
 
     A sample is built from the row in month M (target month M+1): features span
@@ -205,7 +262,7 @@ def prepare_flat_features(monthly_df: pd.DataFrame, feature_cols: list,
                 continue
             target_month = int(months[i]) + 1
             if filter_months is None or target_month in filter_months:
-                x = features[i - lookback + 1:i + 1].flatten()
+                x = features[i - lookback + 1 : i + 1].flatten()
                 X_flat.append(x)
                 y_flat.append(targets[i])
                 y_prev.append(targets[i - 1])
@@ -213,16 +270,22 @@ def prepare_flat_features(monthly_df: pd.DataFrame, feature_cols: list,
 
     if not X_flat:
         return np.array([]), np.array([]), [], np.array([])
-    return (np.array(X_flat, dtype=np.float32), np.array(y_flat, dtype=np.float32),
-            meta, np.array(y_prev, dtype=np.float32))
+    return (
+        np.array(X_flat, dtype=np.float32),
+        np.array(y_flat, dtype=np.float32),
+        meta,
+        np.array(y_prev, dtype=np.float32),
+    )
 
 
 # ---------------------------------------------------------------------------
 # Evaluation Metrics
 # ---------------------------------------------------------------------------
 
-def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str,
-                    y_prev: Optional[np.ndarray] = None) -> dict:
+
+def compute_metrics(
+    y_true: np.ndarray, y_pred: np.ndarray, tier_name: str, y_prev: np.ndarray | None = None
+) -> dict:
     """Compute regression metrics.
 
     Primary (MDD v2.4): MAE, SMAPE, MDA, RMSE. Supplementary: MAPE, R-squared.
@@ -235,8 +298,12 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str,
     r2 = float(r2_score(y_true, y_pred))
 
     denom = np.abs(y_true) + np.abs(y_pred)
-    smape_vals = np.divide(2.0 * np.abs(y_true - y_pred), denom,
-                           out=np.zeros_like(denom, dtype=float), where=denom != 0)
+    smape_vals = np.divide(
+        2.0 * np.abs(y_true - y_pred),
+        denom,
+        out=np.zeros_like(denom, dtype=float),
+        where=denom != 0,
+    )
     smape = float(np.mean(smape_vals) * 100)
 
     mda = float("nan")
@@ -252,8 +319,10 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str,
     mean_target = np.mean(y_true)
     nonzero_mask = y_true > (mean_target * 0.01)
     if nonzero_mask.sum() > 0:
-        mape = float(np.mean(np.abs((y_true[nonzero_mask] - y_pred[nonzero_mask])
-                                     / y_true[nonzero_mask])) * 100)
+        mape = float(
+            np.mean(np.abs((y_true[nonzero_mask] - y_pred[nonzero_mask]) / y_true[nonzero_mask]))
+            * 100
+        )
     else:
         mape = float("inf")
 
@@ -272,54 +341,53 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str,
 # Model Training Functions
 # ---------------------------------------------------------------------------
 
-def train_rf(X_train: np.ndarray, y_train: np.ndarray,
-             X_test: np.ndarray, y_test: np.ndarray) -> tuple:
+
+def train_rf(
+    X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray
+) -> tuple:
     """Train Random Forest Regressor."""
-    model = RandomForestRegressor(
-        n_estimators=200, max_depth=10, n_jobs=-1, random_state=42
-    )
+    model = RandomForestRegressor(n_estimators=200, max_depth=10, n_jobs=-1, random_state=42)
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
     return model, y_pred
 
 
+def forecast_arima_pool(hist: pd.DataFrame, target_row_months: list) -> tuple[dict, int]:
+    """Fit a pooled, user-normalized ARIMA and forecast the test window.
+
+    Each user's monthly expense series is normalized by that user's own
+    trailing mean (users sit on a common ~1.0 scale), then averaged across
+    users per month into one robust pooled series. A low-order ARIMA is fit on
+    that series and forecast forward over `target_row_months` in sequence.
+
+    Returns ({month: pooled_scalar}, n_fits). The returned map is the
+    scale-normalized pooled forecast path; the caller rescales each user by
+    that user's own trailing mean (or the global mean for cold-start users),
+    giving full test coverage.
+    """
+    n_fits = 0
+    hist = hist[hist["target_expenses"].notna()].copy()
+    if hist.empty:
+        return {}, n_fits
+
+    user_mean = hist.groupby("user_id")["target_expenses"].transform("mean").replace(0, np.nan)
+    hist["norm"] = hist["target_expenses"] / user_mean
+
+    pooled = hist.groupby("month")["norm"].mean().sort_index().reset_index(drop=True)
+    if HAS_STATSMODELS and len(pooled) >= ARIMA_MIN_HISTORY:
+        model = ARIMA(pooled, order=ARIMA_ORDER).fit(method="burg")
+        n_fits = 1
+        forecast_vals = model.forecast(len(target_row_months))
+    else:
+        forecast_vals = np.full(len(target_row_months), pooled.mean())
+
+    target_order = sorted(target_row_months)
+    return dict(zip(target_order, np.asarray(forecast_vals, dtype=float), strict=True)), n_fits
+
+
 # ---------------------------------------------------------------------------
-# PyTorch Sequence Models (LSTM / GRU / BiLSTM)
+# PyTorch Sequence Model (GRU)
 # ---------------------------------------------------------------------------
-
-class _SequenceForecaster(nn.Module):
-    """PyTorch module for LSTM/GRU/BiLSTM sequence forecasting."""
-
-    def __init__(self, input_size: int, hidden_size: int = 32,
-                 model_type: str = "lstm", dropout: float = 0.2):
-        super().__init__()
-        self.model_type = model_type
-        self.hidden_size = hidden_size
-
-        if model_type == "lstm":
-            self.rnn = nn.LSTM(input_size, hidden_size, batch_first=True)
-        elif model_type == "gru":
-            self.rnn = nn.GRU(input_size, hidden_size, batch_first=True)
-        elif model_type == "bilstm":
-            self.rnn = nn.LSTM(input_size, hidden_size, batch_first=True,
-                               bidirectional=True)
-        else:
-            raise ValueError(f"Unknown model_type: {model_type}")
-
-        self.dropout = nn.Dropout(dropout)
-
-        rnn_out_size = hidden_size * 2 if model_type == "bilstm" else hidden_size
-        self.head = nn.Sequential(
-            nn.Linear(rnn_out_size, 32),
-            nn.ReLU(),
-            nn.Linear(32, 1),
-        )
-
-    def forward(self, x):
-        rnn_out, _ = self.rnn(x)
-        last = rnn_out[:, -1, :]
-        last = self.dropout(last)
-        return self.head(last).squeeze(-1)
 
 
 def _train_pytorch_model(
@@ -375,7 +443,7 @@ def _train_pytorch_model(
             no_improve += 1
             if no_improve >= patience:
                 if verbose:
-                    print(f"    Early stopping at epoch {epoch+1}")
+                    print(f"    Early stopping at epoch {epoch + 1}")
                 break
 
     if best_state is not None:
@@ -383,23 +451,26 @@ def _train_pytorch_model(
     return model
 
 
-def build_lstm_model(input_shape: tuple, model_type: str = "lstm") -> Any:
-    """Build LSTM/GRU/BiLSTM model (PyTorch)."""
+def build_sequence_model(input_shape: tuple, model_type: str = "gru") -> Any:
+    """Build a sequence forecaster (GRU default; LSTM/BiLSTM supported)."""
     if not HAS_PYTORCH:
         return None
     seq_len, n_feat = input_shape
-    return _SequenceForecaster(input_size=n_feat, hidden_size=32,
-                               model_type=model_type)
+    return _SequenceForecaster(input_size=n_feat, hidden_size=32, model_type=model_type)
 
 
-def train_lstm_variant(X_train: np.ndarray, y_train: np.ndarray,
-                       X_test: np.ndarray, y_test: np.ndarray,
-                       model_type: str = "lstm") -> tuple:
-    """Train LSTM/GRU/BiLSTM model (PyTorch)."""
+def train_sequence_variant(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    model_type: str = "gru",
+) -> tuple:
+    """Train a sequence forecaster (GRU default; LSTM/BiLSTM supported)."""
     if not HAS_PYTORCH:
         return None, np.zeros(len(y_test))
 
-    model = build_lstm_model((X_train.shape[1], X_train.shape[2]), model_type)
+    model = build_sequence_model((X_train.shape[1], X_train.shape[2]), model_type)
     if model is None:
         return None, np.zeros(len(y_test))
 
@@ -408,8 +479,15 @@ def train_lstm_variant(X_train: np.ndarray, y_train: np.ndarray,
     X_tr, y_tr = X_train[:-n_val], y_train[:-n_val]
 
     model = _train_pytorch_model(
-        model, X_tr, y_tr, X_val, y_val,
-        epochs=50, batch_size=64, lr=0.001, patience=10,
+        model,
+        X_tr,
+        y_tr,
+        X_val,
+        y_val,
+        epochs=50,
+        batch_size=64,
+        lr=0.001,
+        patience=10,
     )
 
     model.eval()
@@ -424,17 +502,24 @@ def train_lstm_variant(X_train: np.ndarray, y_train: np.ndarray,
 # Walk-Forward Validation
 # ---------------------------------------------------------------------------
 
-def run_wfv(splits: dict, folds: list, feature_cols: list,
-            run_name: str = "") -> dict:
+
+def run_wfv(
+    splits: dict,
+    folds: list,
+    feature_cols: list,
+    run_name: str = "",
+    run_gru: bool = True,
+    run_rf: bool = True,
+) -> dict:
     """Run walk-forward validation across all folds.
 
     Key design: aggregate ALL data to monthly once, then for each fold
     create train/test by filtering on months. Test samples use ALL prior
     months as lookback context (not just test-month data).
     """
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Walk-Forward Validation: {run_name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     # Aggregate ALL data to monthly once
     all_data = pd.concat(splits.values(), ignore_index=True)
@@ -468,16 +553,23 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
             print(f"  WARNING: Empty train for fold {fold_num}, skipping")
             continue
 
-        print(f"  Train monthly: {len(train_monthly)} samples "
-              f"({train_monthly['user_id'].nunique()} personas)")
-        print(f"  Test context: {len(test_context)} samples "
-              f"({test_context['user_id'].nunique()} personas)")
+        print(
+            f"  Train monthly: {len(train_monthly)} samples "
+            f"({train_monthly['user_id'].nunique()} personas)"
+        )
+        print(
+            f"  Test context: {len(test_context)} samples "
+            f"({test_context['user_id'].nunique()} personas)"
+        )
 
-        fold_results = {"fold": fold_num, "train_months": train_months,
-                        "test_months": test_months,
-                        "n_train": len(train_monthly),
-                        "n_test": 0,
-                        "tier_results": {}}
+        fold_results = {
+            "fold": fold_num,
+            "train_months": train_months,
+            "test_months": test_months,
+            "n_train": len(train_monthly),
+            "n_test": 0,
+            "tier_results": {},
+        }
 
         # --- Naive Baseline ---
         # Test samples target month T (rows in month T-1). Naive predicts the
@@ -486,45 +578,83 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
         target_row_months = [m - 1 for m in test_months if m - 1 >= 1]
         test_actual = test_context[test_context["month"].isin(target_row_months)].copy()
         test_actual = test_actual.sort_values(["user_id", "month"])
-        naive_pred = np.full(len(test_actual),
-                              train_monthly["target_expenses"].mean())
+        naive_pred = np.full(len(test_actual), train_monthly["target_expenses"].mean())
         prior_months = [m - 2 for m in test_months if m - 2 >= 1]
-        prior_rows = test_context[test_context["month"].isin(prior_months)].set_index("user_id")["target_expenses"]
+        prior_rows = test_context[test_context["month"].isin(prior_months)].set_index("user_id")[
+            "target_expenses"
+        ]
         naive_y_prev = test_actual["user_id"].map(prior_rows).values
         naive_metrics = compute_metrics(
-            test_actual["target_expenses"].values, naive_pred, "naive_baseline",
+            test_actual["target_expenses"].values,
+            naive_pred,
+            "naive_baseline",
             y_prev=naive_y_prev,
         )
         fold_results["tier_results"]["naive_baseline"] = naive_metrics
         fold_results["n_test"] = len(test_actual)
-        print(f"  Naive: MAPE={naive_metrics['mape']:.2f}%, "
-              f"SMAPE={naive_metrics['smape']:.2f}%, MDA={naive_metrics['mda']:.4f}")
+        print(
+            f"  Naive: MAPE={naive_metrics['mape']:.2f}%, "
+            f"SMAPE={naive_metrics['smape']:.2f}%, MDA={naive_metrics['mda']:.4f}"
+        )
+
+        # --- Tier 3a: ARIMA (pooled user-normalized; one fit per fold) ---
+        arima_hist = all_monthly[all_monthly["month"] <= max(train_months)]
+        arima_path, arima_n_fits = forecast_arima_pool(arima_hist, target_row_months)
+        if arima_path:
+            # Rescale the normalized pooled path by each user's trailing mean.
+            user_means = arima_hist.groupby("user_id")["target_expenses"].mean()
+            global_mean = float(arima_hist["target_expenses"].mean())
+            arima_pred = np.array(
+                [
+                    arima_path.get(int(month), 1.0) * float(user_means.get(uid, global_mean))
+                    for uid, month in zip(test_actual["user_id"], test_actual["month"], strict=True)
+                ]
+            )
+            arima_metrics = compute_metrics(
+                test_actual["target_expenses"].values,
+                arima_pred,
+                "tier3_arima",
+                y_prev=naive_y_prev,
+            )
+            fold_results["tier_results"]["tier3_arima"] = arima_metrics
+            print(
+                f"  ARIMA: MAPE={arima_metrics['mape']:.2f}%, "
+                f"SMAPE={arima_metrics['smape']:.2f}%, MDA={arima_metrics['mda']:.4f}, "
+                f"R²={arima_metrics['r2']:.4f} (pool fits={arima_n_fits})"
+            )
+        else:
+            print("  ARIMA: Skipped (empty pooled series)")
 
         # --- Tier 2: Random Forest ---
         # Train on train months, test on test months (with lookback context)
-        X_train_rf, y_train_rf, _, _ = prepare_flat_features(train_monthly, feature_cols)
-        X_test_rf, y_test_rf, meta_rf, y_prev_rf = prepare_flat_features(
-            test_context, feature_cols, filter_months=test_months
-        )
-
-        if len(X_train_rf) > 0 and len(X_test_rf) > 0:
-            scaler_rf = StandardScaler()
-            X_train_rf_s = scaler_rf.fit_transform(X_train_rf)
-            X_test_rf_s = scaler_rf.transform(X_test_rf)
-
-            rf_model, rf_pred = train_rf(X_train_rf_s, y_train_rf,
-                                          X_test_rf_s, y_test_rf)
-            rf_metrics = compute_metrics(y_test_rf, rf_pred, "tier2_random_forest",
-                                         y_prev=y_prev_rf)
-            fold_results["tier_results"]["tier2_random_forest"] = rf_metrics
-            print(f"  RF: MAPE={rf_metrics['mape']:.2f}%, "
-                  f"SMAPE={rf_metrics['smape']:.2f}%, MDA={rf_metrics['mda']:.4f}, "
-                  f"R²={rf_metrics['r2']:.4f}")
+        if not run_rf:
+            print("  RF: Skipped (run_rf=False; CPU-constrained default)")
         else:
-            print(f"  RF: Skipped (train={len(X_train_rf)}, test={len(X_test_rf)})")
+            X_train_rf, y_train_rf, _, _ = prepare_flat_features(train_monthly, feature_cols)
+            X_test_rf, y_test_rf, meta_rf, y_prev_rf = prepare_flat_features(
+                test_context, feature_cols, filter_months=test_months
+            )
 
-        # --- Tier 3: LSTM / GRU / BiLSTM ---
-        if HAS_PYTORCH:
+            if len(X_train_rf) > 0 and len(X_test_rf) > 0:
+                scaler_rf = StandardScaler()
+                X_train_rf_s = scaler_rf.fit_transform(X_train_rf)
+                X_test_rf_s = scaler_rf.transform(X_test_rf)
+
+                rf_model, rf_pred = train_rf(X_train_rf_s, y_train_rf, X_test_rf_s, y_test_rf)
+                rf_metrics = compute_metrics(
+                    y_test_rf, rf_pred, "tier2_random_forest", y_prev=y_prev_rf
+                )
+                fold_results["tier_results"]["tier2_random_forest"] = rf_metrics
+                print(
+                    f"  RF: MAPE={rf_metrics['mape']:.2f}%, "
+                    f"SMAPE={rf_metrics['smape']:.2f}%, MDA={rf_metrics['mda']:.4f}, "
+                    f"R²={rf_metrics['r2']:.4f}"
+                )
+            else:
+                print(f"  RF: Skipped (train={len(X_train_rf)}, test={len(X_test_rf)})")
+
+        # --- Tier 3: GRU (top-3-lightest scope; LSTM/BiLSTM are "hold") ---
+        if HAS_PYTORCH and run_gru:
             X_train_seq, y_train_seq, _, _ = prepare_monthly_sequences(
                 train_monthly, feature_cols, lookback=3
             )
@@ -544,24 +674,28 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
                 X_test_flat_s = scaler_seq.transform(X_test_flat)
                 X_test_seq_s = X_test_flat_s.reshape(n_test, seq_len, n_feat)
 
-                for variant in ["lstm", "gru", "bilstm"]:
+                for variant in ["gru"]:
                     tier_name = f"tier3_{variant}"
-                    model, pred = train_lstm_variant(
-                        X_train_seq_s, y_train_seq,
-                        X_test_seq_s, y_test_seq,
+                    model, pred = train_sequence_variant(
+                        X_train_seq_s,
+                        y_train_seq,
+                        X_test_seq_s,
+                        y_test_seq,
                         model_type=variant,
                     )
-                    metrics = compute_metrics(y_test_seq, pred, tier_name,
-                                              y_prev=y_prev_seq)
+                    metrics = compute_metrics(y_test_seq, pred, tier_name, y_prev=y_prev_seq)
                     fold_results["tier_results"][tier_name] = metrics
-                    print(f"  {variant.upper()}: MAPE={metrics['mape']:.2f}%, "
-                          f"SMAPE={metrics['smape']:.2f}%, "
-                          f"MDA={metrics['mda']:.4f}, R²={metrics['r2']:.4f}")
+                    print(
+                        f"  {variant.upper()}: MAPE={metrics['mape']:.2f}%, "
+                        f"SMAPE={metrics['smape']:.2f}%, "
+                        f"MDA={metrics['mda']:.4f}, R²={metrics['r2']:.4f}"
+                    )
             else:
-                print(f"  LSTM: Skipped (train={len(X_train_seq)}, "
-                      f"test={len(X_test_seq)})")
+                print(f"  GRU: Skipped (train={len(X_train_seq)}, test={len(X_test_seq)})")
+        elif HAS_PYTORCH and not run_gru:
+            print("  GRU: Skipped (--skip-torch; run on a GPU-capable teammate machine)")
         else:
-            print("  LSTM/GRU/BiLSTM: Skipped (pytorch not installed)")
+            print("  GRU: Skipped (pytorch not installed)")
 
         all_fold_results.append(fold_results)
 
@@ -572,6 +706,7 @@ def run_wfv(splits: dict, folds: list, feature_cols: list,
 # Aggregate & Decision Rule
 # ---------------------------------------------------------------------------
 
+
 def aggregate_metrics(fold_results: list) -> dict:
     """Aggregate metrics across folds."""
     tier_names = set()
@@ -580,15 +715,22 @@ def aggregate_metrics(fold_results: list) -> dict:
 
     aggregate = {}
     for tier in tier_names:
-        vals = {k: [fr["tier_results"][tier][k]
-                    for fr in fold_results if tier in fr["tier_results"]]
-                for k in ("mae", "smape", "mda", "rmse", "mape", "r2")}
+        vals = {
+            k: [fr["tier_results"][tier][k] for fr in fold_results if tier in fr["tier_results"]]
+            for k in ("mae", "smape", "mda", "rmse", "mape", "r2")
+        }
 
         if vals["mape"]:
+
             def _agg(key, fmt=round):
-                arr = np.array([v for v in vals[key] if v is not None
-                                and not (isinstance(v, float) and np.isnan(v))],
-                               dtype=float)
+                arr = np.array(
+                    [
+                        v
+                        for v in vals[key]
+                        if v is not None and not (isinstance(v, float) and np.isnan(v))
+                    ],
+                    dtype=float,
+                )
                 if len(arr) == 0:
                     return None, None
                 return fmt(float(np.mean(arr)), 4), fmt(float(np.std(arr)), 4)
@@ -618,8 +760,20 @@ def aggregate_metrics(fold_results: list) -> dict:
     return aggregate
 
 
+def _winner_artifacts(winner: str) -> list[str]:
+    """Map a winner name to its final artifact filenames."""
+    if winner == "tier2_random_forest":
+        return ["tier2_random_forest.joblib"]
+    if winner == "tier3_arima":
+        return ["tier3_arima.joblib"]
+    if winner.startswith("tier3_"):
+        variant = winner
+        return [f"{variant}.pth", f"{variant}_meta.joblib"]
+    return ["evaluation.json"]
+
+
 def apply_decision_rule(aggregate: dict, naive_mape: float) -> tuple:
-    """Apply pre-registered decision rule."""
+    """Apply the pre-registered MAPE-reduction decision rule."""
     best_tier = None
     best_mape = float("inf")
 
@@ -638,13 +792,17 @@ def apply_decision_rule(aggregate: dict, naive_mape: float) -> tuple:
 
     mape_reduction = 1.0 - (best_mape / naive_mape)
     if mape_reduction >= PRE_REGISTERED_MAPE_REDUCTION:
-        reason = (f"{best_tier} reduces MAPE by {mape_reduction*100:.1f}% "
-                  f"(>{PRE_REGISTERED_MAPE_REDUCTION*100:.0f}% threshold)")
+        reason = (
+            f"{best_tier} reduces MAPE by {mape_reduction * 100:.1f}% "
+            f"(>{PRE_REGISTERED_MAPE_REDUCTION * 100:.0f}% threshold)"
+        )
         return best_tier, reason
     else:
-        reason = (f"Best model {best_tier} reduces MAPE by only "
-                  f"{mape_reduction*100:.1f}% (<{PRE_REGISTERED_MAPE_REDUCTION*100:.0f}% "
-                  f"threshold). Naive baseline preferred for simplicity.")
+        reason = (
+            f"Best model {best_tier} reduces MAPE by only "
+            f"{mape_reduction * 100:.1f}% (<{PRE_REGISTERED_MAPE_REDUCTION * 100:.0f}% "
+            f"threshold). Naive baseline preferred for simplicity."
+        )
         return "naive_baseline", reason
 
 
@@ -652,8 +810,8 @@ def apply_decision_rule(aggregate: dict, naive_mape: float) -> tuple:
 # Model Saving
 # ---------------------------------------------------------------------------
 
-def save_models(splits: dict, feature_cols: list, output_dir: Path,
-                winner: str):
+
+def save_models(splits: dict, feature_cols: list, output_dir: Path, winner: str):
     """Re-train winner on full data and save artifacts."""
     print(f"\nRe-training {winner} on full data for final model...")
 
@@ -665,13 +823,38 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path,
     if winner == "tier2_random_forest":
         X, y, _, _ = prepare_flat_features(monthly, feature_cols)
         X_s = scaler.fit_transform(X)
-        model = RandomForestRegressor(
-            n_estimators=200, max_depth=10, n_jobs=-1, random_state=42
-        )
+        model = RandomForestRegressor(n_estimators=200, max_depth=10, n_jobs=-1, random_state=42)
         model.fit(X_s, y)
-        joblib.dump({"model": model, "scaler": scaler, "feature_cols": feature_cols},
-                    output_dir / "tier2_random_forest.joblib")
+        joblib.dump(
+            {"model": model, "scaler": scaler, "feature_cols": feature_cols},
+            output_dir / "tier2_random_forest.joblib",
+        )
         print("  Saved tier2_random_forest.joblib")
+
+    elif winner == "tier3_arima":
+        # Refit the pooled ARIMA on the full data for serving. Per-user level
+        # scaling at serve time multiplies the normalized pooled forecast by
+        # the user's own trailing mean; store `pool_level` (the pooled series
+        # mean used as the normalization anchor) for exact rescaling.
+        hist = monthly[monthly["target_expenses"].notna()].copy()
+        user_mean = hist.groupby("user_id")["target_expenses"].transform("mean").replace(0, np.nan)
+        hist["norm"] = hist["target_expenses"] / user_mean
+        pooled = hist.groupby("month")["norm"].mean().sort_index().reset_index(drop=True)
+        pool_level = float(pooled.mean()) if not pooled.empty else 1.0
+        if HAS_STATSMODELS and len(pooled) >= ARIMA_MIN_HISTORY:
+            model = ARIMA(pooled, order=ARIMA_ORDER).fit(method="burg")
+        else:
+            model = None
+        joblib.dump(
+            {
+                "kind": "arima",
+                "model": model,
+                "pool_level": pool_level,
+                "feature_cols": feature_cols,
+            },
+            output_dir / "tier3_arima.joblib",
+        )
+        print("  Saved tier3_arima.joblib")
 
     elif winner.startswith("tier3_") and HAS_PYTORCH:
         variant = winner.replace("tier3_", "")
@@ -682,24 +865,33 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path,
             X_flat_s = scaler.fit_transform(X_flat)
             X_s = X_flat_s.reshape(n, seq_len, n_feat)
 
-            model = build_lstm_model((seq_len, n_feat), variant)
+            model = build_sequence_model((seq_len, n_feat), variant)
             X_t = torch.tensor(X_s, dtype=torch.float32)
             y_t = torch.tensor(y, dtype=torch.float32)
             n_val = max(1, int(len(X_t) * 0.15))
             model = _train_pytorch_model(
-                model, X_t[:-n_val].numpy(), y_t[:-n_val].numpy(),
-                X_t[-n_val:].numpy(), y_t[-n_val:].numpy(),
-                epochs=50, batch_size=32,
+                model,
+                X_t[:-n_val].numpy(),
+                y_t[:-n_val].numpy(),
+                X_t[-n_val:].numpy(),
+                y_t[-n_val:].numpy(),
+                epochs=50,
+                batch_size=32,
             )
-            torch.save({
-                "model_state_dict": model.state_dict(),
-                "model_type": variant,
-                "input_size": n_feat,
-                "hidden_size": 32,
-                "seq_length": seq_len,
-            }, output_dir / f"{winner}.pth")
-            joblib.dump({"scaler": scaler, "feature_cols": feature_cols},
-                        output_dir / f"{winner}_meta.joblib")
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "model_type": variant,
+                    "input_size": n_feat,
+                    "hidden_size": 32,
+                    "seq_length": seq_len,
+                },
+                output_dir / f"{winner}.pth",
+            )
+            joblib.dump(
+                {"scaler": scaler, "feature_cols": feature_cols},
+                output_dir / f"{winner}_meta.joblib",
+            )
             print(f"  Saved {winner}.pth + meta.joblib")
 
 
@@ -707,13 +899,14 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path,
 # Report Generation
 # ---------------------------------------------------------------------------
 
+
 def write_evaluation_report(report: TrainingReport, output_dir: Path):
     """Write human-readable evaluation report."""
     lines = [
         "# Forecaster Training Evaluation Report",
         f"\n**Timestamp:** {report.timestamp}",
         f"**Folds:** {report.n_folds}",
-        f"**MAPE Reduction Threshold:** {PRE_REGISTERED_MAPE_REDUCTION*100:.0f}%",
+        f"**MAPE Reduction Threshold:** {PRE_REGISTERED_MAPE_REDUCTION * 100:.0f}%",
         f"\n## Winner: {report.winner}",
         f"**Reason:** {report.winner_reason}",
         "\n## Aggregate Results",
@@ -760,6 +953,7 @@ def write_evaluation_report(report: TrainingReport, output_dir: Path):
 # Main Pipeline
 # ---------------------------------------------------------------------------
 
+
 def run_training(config: dict) -> TrainingReport:
     start_time = time.time()
     report = TrainingReport(timestamp=datetime.now().isoformat())
@@ -773,16 +967,20 @@ def run_training(config: dict) -> TrainingReport:
     feature_meta = load_feature_columns(input_dir)
     feature_cols = feature_meta.get("feature_columns", FORECASTER_FEATURES)
 
-    folds_path = Path(config.get("folds", "datasets/processed/temporal_folds.json"))
+    folds_path = Path(config.get("folds", "training/datasets/processed/temporal_folds.json"))
     folds = load_temporal_folds(str(folds_path))
     report.n_folds = len(folds)
+
+    data_sources = [Path(input_dir) / f"{name}.parquet" for name in ("train", "val", "test")]
 
     print(f"  Features: {len(feature_cols)}")
     print(f"  Folds: {len(folds)}")
 
     # Run WFV
     print("\n[2/5] Running walk-forward validation...")
-    wfv_results = run_wfv(splits, folds, feature_cols)
+    run_gru = config.get("run_gru", True)
+    run_rf = config.get("run_rf", True)
+    wfv_results = run_wfv(splits, folds, feature_cols, run_gru=run_gru, run_rf=run_rf)
     report.fold_results = wfv_results["folds"]
 
     # Aggregate
@@ -822,6 +1020,41 @@ def run_training(config: dict) -> TrainingReport:
     # Write report
     write_evaluation_report(report, output_dir)
 
+    # Emit metadata.json (Phase 8 provenance: hash, commit, metrics, rule)
+    winner_stats = report.aggregate_metrics.get(winner, {})
+    metadata = build_metadata(
+        model_id=f"forecaster-{winner}",
+        family="forecaster",
+        feature_columns=feature_cols,
+        metrics={
+            "primary": {
+                "name": "mape",
+                "value": winner_stats.get("mape_mean"),
+                "reduction_vs_naive_pct": (1.0 - winner_stats.get("mape_mean") / naive_mape)
+                if naive_mape and winner_stats.get("mape_mean")
+                else None,
+                "folds": report.n_folds,
+            },
+            "secondary": {
+                key: winner_stats[key]
+                for key in ("mae_mean", "smape_mean", "mda_mean", "rmse_mean", "r2_mean")
+                if key in winner_stats
+            },
+        },
+        decision_rule=(
+            f"best model must beat the naive baseline by "
+            f">={PRE_REGISTERED_MAPE_REDUCTION * 100:.0f}% MAPE reduction"
+        ),
+        framework="statsmodels" if winner == "tier3_arima" else "scikit-learn",
+        framework_version=framework_version_of(
+            "statsmodels" if winner == "tier3_arima" else "scikit-learn"
+        ),
+        artifacts=_winner_artifacts(winner),
+        data_sources=data_sources,
+        winner_reason=reason,
+    )
+    write_metadata(metadata, output_dir)
+
     elapsed = time.time() - start_time
     print(f"\nDone. Winner: {winner}, {elapsed:.1f}s")
     return report
@@ -831,16 +1064,37 @@ def run_training(config: dict) -> TrainingReport:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Training Pipeline for LSTM Spending Forecaster"
+        description="Training Pipeline for the Spending Forecaster (ARIMA + RF + GRU)"
     )
-    parser.add_argument("--input", default="datasets/forecaster/",
-                        help="Input directory with forecaster features")
-    parser.add_argument("--output", default="models/forecaster/",
-                        help="Output directory for models")
-    parser.add_argument("--folds", default="datasets/processed/temporal_folds.json",
-                        help="Path to temporal_folds.json")
+    parser.add_argument(
+        "--input",
+        default="training/datasets/forecaster/",
+        help="Input directory with forecaster features",
+    )
+    parser.add_argument(
+        "--output", default="models/forecaster/", help="Output directory for models"
+    )
+    parser.add_argument(
+        "--folds",
+        default="training/datasets/processed/temporal_folds.json",
+        help="Path to temporal_folds.json",
+    )
+    parser.add_argument(
+        "--skip-torch",
+        action="store_true",
+        help="Skip CPU-bound PyTorch (GRU) tiers. Use on CPU-limited "
+        "machines; run GRU on a GPU-capable teammate machine instead.",
+    )
+    parser.add_argument(
+        "--skip-rf",
+        action="store_true",
+        help="Skip the CPU-bound Random Forest tier (keep ARIMA + "
+        "baseline). Use when ARIMA clearly wins and RF runtime "
+        "is prohibitive on a constrained machine.",
+    )
     return parser.parse_args()
 
 
@@ -850,5 +1104,7 @@ if __name__ == "__main__":
         "input": args.input,
         "output": args.output,
         "folds": args.folds,
+        "run_gru": not args.skip_torch,
+        "run_rf": not args.skip_rf,
     }
     run_training(config)
