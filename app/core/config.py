@@ -7,7 +7,7 @@ APP_DIR = Path(__file__).resolve().parent.parent.parent
 REPO_ROOT = APP_DIR
 TRAINING_DIR = REPO_ROOT / "training"
 TRAINING_SCRIPTS_DIR = TRAINING_DIR / "scripts"
-MODELS_DIR = REPO_ROOT / "training" / "models"
+MODELS_DIR = REPO_ROOT / "models"
 
 SERVICE_NAME = "odin-ml"
 SERVICE_VERSION = "0.2.0"

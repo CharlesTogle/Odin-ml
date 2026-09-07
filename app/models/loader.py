@@ -9,11 +9,12 @@ from app.core.config import MODELS_DIR
 
 
 class ModelLoader:
-    """Loads model artifacts from `training/models/{module}/{version}/`.
+    """Loads model artifacts from `models/{module}/{version}/`.
 
     Mirrors the deployment-architecture.md v1.1 loading contract: artifacts are
     versioned directories with a `latest` symlink; feature columns and metadata
-    travel alongside the estimator.
+    travel alongside the estimator. `MODELS_DIR` points at the canonical
+    top-level `models/` home (old-scope artifacts stay under `training/`).
     """
 
     def __init__(self, models_dir: Path = MODELS_DIR):
@@ -22,9 +23,9 @@ class ModelLoader:
     def resolve(self, module: str, version: str = "latest") -> Path:
         """Resolve the directory containing a module's artifacts.
 
-        Prefers a versioned subdirectory (`training/models/{module}/{version}/`,
-        or a `latest` symlink). Falls back to the flat training-pipeline layout
-        (`training/models/{module}/`), which is the current repo state.
+        Prefers a versioned subdirectory (`models/{module}/{version}/`,
+        or a `latest` symlink). Falls back to the flat layout
+        (`models/{module}/`), which is what the train pipelines emit.
         """
         root = self.models_dir / module / version
         if not root.exists():
