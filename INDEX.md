@@ -31,9 +31,12 @@
 | `INDEX.md` | This file. Master navigation index. |
 | `README.md` | Project overview, pipeline, setup, and usage. |
 | `app/` | FastAPI microservice for model serving (PFP, forecaster, anomaly, budget). |
+| `models/` | Canonical home for new-scope FINAL model artifacts + `metadata.json`. |
 | `tests/` | Pytest coverage for the service. |
 | `training/` | Model development pipeline (scripts, datasets, models, docs). |
-| `docs/` | Standards and documentation. |
+| `docs/` | Standards, documentation, and model-lifecycle docs. |
+| `pyproject.toml` | Ruff / mypy / pytest / package metadata. |
+| `.pre-commit-config.yaml` | Pre-commit hooks (ruff, format, hygiene). |
 
 ---
 
@@ -56,6 +59,20 @@ Pytest coverage for the serving API (health, PFP, forecast, anomaly, budget). Se
 
 ---
 
+## models/
+
+Canonical home for **new-scope** final model artifacts, each with `metadata.json`
+(schema in `models/README.md`). Old-scope winner artifacts are NOT moved and stay under
+`training/figures/models/`.
+
+| Path | Purpose |
+| :--- | :--- |
+| `models/README.md` | Artifact layout + `metadata.json` schema. |
+| `models/pfp/` | PFP classifier final artifact + metadata. |
+| `models/forecaster/` | Spending forecaster final artifact + metadata. |
+| `models/anomaly/` | Anomaly detector final artifact + metadata. |
+| `models/budget/` | Budget optimizer config + metadata. |
+
 ## training/
 
 The model development pipeline. Large generated artifacts are gitignored; scripts, docs, and evaluation reports are committed.
@@ -64,18 +81,18 @@ The model development pipeline. Large generated artifacts are gitignored; script
 | :--- | :--- |
 | `training/scripts/` | Collector, preprocessor, feature engineering, and training scripts. |
 | `training/docs/` | ML design documents (data collection, EDA, dimension discovery). |
+| `training/docs/phases/` | Model development runbooks: Phase 7 evaluation, 8 selection/versioning, 9 deployment, 10 monitoring. |
 | `training/figures/` | EDA plots and `eda_report.md`. |
 | `training/datasets/` | Processed/engineered feature matrices (gitignored). |
 | `training/synth/` | Generated personas and transactions (gitignored). |
 | `training/models/` | Trained model artifacts: `pfp/`, `forecaster/`, `anomaly/` (gitignored). |
 
----
-
 ## docs/
 
 | Path | Purpose |
 | :--- | :--- |
-| `docs/README.md` | Clarifies the split between `docs/standards/` and `training/docs/`. |
+| `docs/README.md` | Clarifies the split between `docs/standards/`, `docs/models/`, and `training/docs/`. |
+| `docs/models/model-candidate-roster.md` | RRL-grounded candidate algorithms per model family. |
 | `docs/standards/REPOSITORY-STANDARDS.md` | Enforceable Python/ML engineering standards. |
 | `docs/standards/git-commit-standards.md` | Git commit message format and scopes. |
 | `docs/standards/documentation-format.md` | Shared documentation formatting rules. |

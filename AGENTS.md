@@ -38,10 +38,14 @@ Odin-ML/
   INDEX.md               # Master navigation index (authoritative)
   README.md              # Project overview and setup
   app/                   # FastAPI microservice (api, services, models, schemas, core)
+  models/                # Canonical home for new-scope FINAL model artifacts + metadata.json
   tests/                 # Pytest coverage
   training/              # Model development pipeline (scripts, datasets, models, docs)
   docs/                  # Standards and documentation
-    └─ standards/        # Enforceable standards (Python/ML, format, commit)
+    ├─ standards/        # Enforceable standards (Python/ML, format, commit)
+    └─ models/           # Model candidate roster (RRL-grounded) + release guidance
+  pyproject.toml         # Ruff / mypy / pytest / package metadata
+  .pre-commit-config.yaml
 ```
 
 ---
@@ -53,17 +57,19 @@ Odin-ML/
 | `INDEX.md` | Master index. Authoritative navigation for all files. |
 | `README.md` | Project overview, setup, pipeline, and usage. |
 | `app/` | FastAPI service code. Entry point: `app/main.py`. |
+| `models/` | Final model artifacts + `metadata.json` for the new scope (old-scope winners stay in `training/figures/models/`). |
 | `training/` | Model training pipeline (scripts, datasets, artifacts). |
-| `training/docs/` | ML design documents (data collection, EDA, dimension discovery). |
+| `training/docs/` | ML design documents (data collection, EDA, dimension discovery) + `phases/` runbooks (7–10). |
 | `tests/` | Pytest coverage for the service. |
 | `docs/standards/` | Enforceable engineering and documentation standards. |
+| `docs/models/` | Model candidate roster and model-lifecycle guidance. |
 
 ---
 
 ## Python Environment
 
 - Runtime pinned by `.python-version` (Python 3.14.4).
-- Install dependencies in a virtual environment only:
+- Install dependencies in a virtual environment only. Tooling config (lint/type/test) lives in `pyproject.toml`:
 
 ```bash
 python -m venv .venv
@@ -72,16 +78,31 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt   # test/dev deps
 ```
 
+- Install the dev tooling selected by the project extras (or `pip install -e ".[dev]"` after adding a build backend).
 - Use `.\.venv\Scripts\Activate.ps1` on Windows PowerShell.
 
 ---
 
-## Testing
+## Testing, Linting & Type Checking
 
 Run the test suite:
 
 ```bash
 pytest
+```
+
+Also run (configured in `pyproject.toml`):
+
+```bash
+ruff check .                 # lint (E/F/W/I/B/UP/SIM/C4)
+ruff format --check .        # format
+mypy app                     # type check
+```
+
+Run the pre-commit hooks (if installed):
+
+```bash
+pre-commit install && pre-commit run --all-files
 ```
 
 Tests live in `tests/` and cover the FastAPI service (health, PFP, forecast, anomaly, budget).
@@ -96,7 +117,8 @@ Use the format and conventions in `docs/standards/git-commit-standards.md`. This
 
 ## Important Gotchas
 
-- Large generated artifacts (`training/datasets/`, `training/synth/`, `training/models/`, `figures/`) are gitignored. Only scripts, docs, and evaluation reports are committed.
-- Generated EDA and evaluation reports under `training/figures/` and `training/models/*/` are tracked; containerization and CI/CD are still pending.
+- Large generated artifacts (`training/datasets/`, `training/synth/`, `training/models/`, `training/figures/`) are gitignored. Only scripts, docs, and committed evaluation reports are tracked.
+- The **top-level `models/` is NOT gitignored** — it is the canonical home for new-scope FINAL model artifacts + `metadata.json`. Old-scope winner artifacts stay in `training/figures/models/`.
+- New-scope evaluation reports and winners land in top-level `models/<family>/` (committed, with `metadata.json`); containerization and CI/CD are still pending.
 - `app/core/config.py` holds the service version; keep it in sync with release changes.
 - The frontend standards in the main `odin` repository do not apply here. See `docs/standards/documentation-format.md` and `docs/standards/REPOSITORY-STANDARDS.md` for the Python/ML conventions that govern this repository.

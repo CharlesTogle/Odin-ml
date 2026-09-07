@@ -7,12 +7,19 @@ Python microservice for machine learning APIs and inference, plus the complete m
 | Directory | Purpose |
 |-----------|---------|
 | `app/` | FastAPI microservice for model serving (PFP, forecaster, anomaly, budget) |
+| `models/` | Canonical home for new-scope FINAL model artifacts + `metadata.json` |
 | `tests/` | Pytest coverage for the serving API |
 | `training/scripts/` | Data collection, preprocessing, feature engineering, and training pipeline |
+| `training/docs/phases/` | Model development runbooks (Phase 7 evaluation through 10 monitoring) |
 | `training/datasets/` | Processed + engineered feature matrices (Parquet, gitignored) |
 | `training/synth/` | Generated personas and transactions (Parquet, gitignored) |
 | `training/models/` | Trained model artifacts (joblib, gitignored) |
-| `figures/` | EDA plots and analysis outputs |
+| `docs/models/` | RRL-grounded model candidate roster + model-lifecycle guidance |
+| `training/figures/` | EDA plots and analysis outputs (gitignored) |
+
+> **Model artifacts:** the top-level `models/` directory is the target for the **new scope**
+> (each final model committed with `metadata.json`). The previous scope's winner artifacts
+> remain in `training/figures/models/` and are **not** moved.
 
 ## Model Development Pipeline
 
@@ -66,12 +73,12 @@ Defaults: `feature_engineering_forecaster.py` reads `training/synth/` +
 splits → `training/datasets/anomaly/`; `dimension_discovery.py` reads `training/synth/`
 → `training/datasets/dimension-discovery/`.
 
-EDA (reads `training/datasets/processed/`, writes `figures/`):
+EDA (reads `training/datasets/processed/`, writes `training/figures/`):
 
 ```bash
 python training/scripts/eda.py \
   --input training/datasets/processed/ \
-  --output figures/ \
+  --output training/figures/ \
   --seed 42
 ```
 
@@ -118,14 +125,20 @@ odin-ml/
 │  ├─ schemas/                    # Pydantic request and response models
 │  ├─ core/                       # Settings, startup wiring
 │  └─ main.py                     # FastAPI entrypoint
+├─ models/                        # Canonical home for new-scope FINAL artifacts + metadata.json
 ├─ tests/                         # Pytest coverage
 ├─ training/
 │  ├─ scripts/                    # collector, preprocessor, feature engineering, train_* scripts
-│  ├─ docs/                       # ML design documents and phase docs
+│  ├─ docs/                       # ML design documents + phases/ runbooks (7–10)
 │  ├─ datasets/                   # raw/, unprocessed/, processed/, engineered/, forecaster/, anomaly/, dimension-discovery/ (Parquet, gitignored)
 │  ├─ synth/                      # Generated personas + transactions (Parquet, gitignored)
-│  └─ models/                     # Trained artifacts: pfp/, forecaster/, anomaly/ (gitignored)
-├─ figures/                       # EDA plots
+│  ├─ figures/                    # EDA plots + old-scope model artifacts (gitignored)
+│  └─ models/                     # Intermediate trained artifacts pfp/, forecaster/, anomaly/ (gitignored)
+├─ docs/
+│  ├─ standards/                  # Enforceable Python/ML + format + commit standards
+│  └─ models/                     # Model candidate roster + lifecycle guidance
+├─ pyproject.toml                 # Ruff / mypy / pytest / package metadata
+├─ .pre-commit-config.yaml
 ├─ requirements.txt
 ├─ requirements-dev.txt
 ├─ AGENTS.md
@@ -182,6 +195,9 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 uvicorn app.main:app --reload --port 8000
 pytest
+ruff check .
+ruff format --check .
+mypy app
 python -m py_compile app/main.py
 ```
 
