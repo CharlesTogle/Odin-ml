@@ -27,13 +27,15 @@ def _predict_monthly_total(model: ModuleModel, transactions: list[dict]) -> tupl
         # recent expense level.
         arima = artifact["model"]
         pool_level = float(artifact.get("pool_level", 1.0))
+        profile_level = float(artifact.get("profile_level", pool_level))
         pool_pred = float(arima.forecast(1).iloc[0]) if arima is not None else pool_level
         user_summaries = build_monthly_summaries(transactions)
         expenses = user_summaries.loc[user_summaries["total_expenses"] > 0, "total_expenses"]
         level = float(expenses.tail(3).mean()) if not expenses.empty else 0.0
         if level <= 0:
-            # Fallback: return the unrescaled normalized path (≈ pool average)
-            level = pool_level
+            # Cold start (no positive-expense month): fall back to the pooled
+            # profile prior so the forecast is never a literal zero.
+            level = profile_level
         pred = (pool_pred / pool_level) * level
         return pred, {
             "lower_80": pred * 0.8,
@@ -219,13 +221,19 @@ def forecast_or_fallback(
         raise ValueError(f"forecast unavailable: {exc}") from exc
 
 
-def cold_start_estimate(transactions: list[dict]) -> tuple[float, float]:
-    """FO-02: profile-average fallback using the trailing 3-month mean."""
+def cold_start_estimate(
+    transactions: list[dict], profile_level: float = 1.0
+) -> tuple[float, float]:
+    """FO-02: profile-average fallback using the trailing 3-month mean.
+
+    When no positive-expense months exist, returns the pooled profile prior
+    (``profile_level``) with a 30% interval width rather than exact zero.
+    """
     from app.services.features import build_monthly_summaries
 
     summaries = build_monthly_summaries(transactions)
     expenses = summaries.loc[summaries["total_expenses"] > 0, "total_expenses"].tail(3)
     if expenses.empty:
-        return 0.0, 0.0
+        return profile_level, profile_level * 0.3
     total = float(expenses.mean())
     return total, float(expenses.std())

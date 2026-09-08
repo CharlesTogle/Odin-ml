@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.schemas.forecast import ForecastHorizon, ForecastLevel, ForecastRequest
 from app.services import forecast_service
+
 from tests.conftest import load_transactions
 
 
@@ -74,8 +75,37 @@ def test_forecast_rejects_short_history(client):
     payload = {"user_id": "test-user-2", "historical_transactions": txns,
                "forecast_horizon": "MONTHLY", "forecast_level": "TOTAL"}
     resp = client.post("/api/v1/forecast/predict", json=payload)
-    # Falls back (FALLBACK) or errors gracefully; never a 5xx.
+    # Falls back (FALLBACK) or serves; never a 5xx, and the total is non-zero.
     assert resp.status_code in (200, 422)
+    if resp.status_code == 200:
+        body = resp.json()
+        assert sum(p["amount"] for p in body["forecasts"]) > 0
+
+
+def test_forecast_sparse_user_nonzero(client):
+    """A real user with very few transactions must not get a zero total forecast."""
+    txns = load_transactions(n=3)
+    payload = {"user_id": "test-user-sparse", "historical_transactions": txns,
+               "forecast_horizon": "MONTHLY", "forecast_level": "TOTAL"}
+    resp = client.post("/api/v1/forecast/predict", json=payload)
+    body = resp.json()
+    assert resp.status_code == 200
+    assert body["status"] in ("SUCCESS", "FALLBACK")
+    assert sum(p["amount"] for p in body["forecasts"]) > 0
+
+
+def test_cold_start_estimate_uses_profile_prior_when_no_expenses():
+    """With no positive-expense months, the fallback returns the profile prior, not 0."""
+    from app.services.forecast_service import cold_start_estimate
+
+    transactions = [
+        {"date": "2026-09-01", "amount": 500.0, "category": "income",
+         "transaction_type": "income"},
+    ]
+    total, std = cold_start_estimate(transactions, profile_level=32559.8)
+    assert total == 32559.8
+    assert std == 32559.8 * 0.3
+    assert total > 0
 
 
 def test_forecast_rejects_empty_transactions(client):

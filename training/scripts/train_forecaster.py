@@ -903,6 +903,7 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path, winner: str)
         hist["norm"] = hist["target_expenses"] / user_mean
         pooled = hist.groupby("month")["norm"].mean().sort_index().reset_index(drop=True)
         pool_level = float(pooled.mean()) if not pooled.empty else 1.0
+        profile_level = float(hist["target_expenses"].mean()) if not hist.empty else pool_level
         if HAS_STATSMODELS and len(pooled) >= ARIMA_MIN_HISTORY:
             model = ARIMA(pooled, order=ARIMA_ORDER).fit(method="burg")
         else:
@@ -912,6 +913,7 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path, winner: str)
                 "kind": "arima",
                 "model": model,
                 "pool_level": pool_level,
+                "profile_level": profile_level,
                 "feature_cols": feature_cols,
             },
             output_dir / "tier3_arima.joblib",
@@ -926,6 +928,7 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path, winner: str)
         hist["norm"] = hist["target_expenses"] / user_mean
         pooled = hist.groupby("month")["norm"].mean().sort_index().reset_index(drop=True)
         pool_level = float(pooled.mean()) if not pooled.empty else 1.0
+        profile_level = float(hist["target_expenses"].mean()) if not hist.empty else pool_level
         model = None
         if HAS_STATSMODELS and len(pooled) >= ARIMA_MIN_HISTORY:
             try:
@@ -944,6 +947,7 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path, winner: str)
                 "kind": "sarima",
                 "model": model,
                 "pool_level": pool_level,
+                "profile_level": profile_level,
                 "feature_cols": feature_cols,
             },
             output_dir / "tier3_sarima.joblib",

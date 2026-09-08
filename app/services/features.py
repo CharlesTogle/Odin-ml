@@ -37,6 +37,28 @@ def transactions_to_frame(transactions: list[dict]) -> pd.DataFrame:
 CATEGORY_COLUMNS = tuple(EXPENSE_BUCKETS.values()) + ("other_expense",)
 
 
+def _remap_dates_to_grid(df: pd.DataFrame) -> pd.DataFrame:
+    """Remap real transaction dates onto the fixed 2023 feature grid.
+
+    The shared ``feature_engineering_forecaster.process_persona`` builds a
+    hardcoded calendar-year 2023 daily grid and merges transactions by date,
+    so real user dates of any year would otherwise never join the grid. To
+    keep the per-persona lag/rolling/RFM features correct for arbitrary real
+    histories, shift the earliest real transaction to month 1 of 2023 while
+    preserving the relative month and day-of-month deltas between records.
+    """
+    dates = df["date"]
+    earliest = dates.min()
+    # Month offset so the earliest transaction lands on month 1 of 2023.
+    month_delta = (earliest.year - 2023) * 12 + (earliest.month - 1)
+    shifted = dates.apply(
+        lambda d: d.replace(year=2023, month=max(1, d.month - month_delta))
+    )
+    df = df.copy()
+    df["date"] = shifted
+    return df
+
+
 def build_monthly_summaries(transactions: list[dict]) -> pd.DataFrame:
     df = transactions_to_frame(transactions)
     df["month"] = df["date"].dt.month
@@ -93,7 +115,7 @@ def forecast_monthly_features(transactions: list[dict], feature_cols: list[str])
     summaries = build_monthly_summaries(transactions)
     df = transactions_to_frame(transactions)
     df["persona_id"] = "serving_user"
-    df["date"] = df["date"].apply(lambda d: d.replace(year=2023))
+    df = _remap_dates_to_grid(df)
 
     grid = fef.process_persona("serving_user", df, summaries, train_imputation=None, is_train=False)
     if grid.empty:
