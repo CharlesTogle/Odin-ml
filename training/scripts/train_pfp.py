@@ -29,7 +29,7 @@ import sys
 import time
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -53,8 +53,9 @@ from sklearn.svm import SVC
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.ml.metadata import build_metadata, framework_version_of, write_metadata
+from app.ml.metadata import build_metadata, write_metadata
 from app.ml.models import RuleBasedClassifier
+from app.ml.reporting import family_metadata, family_report, write_evaluation_report
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
@@ -531,7 +532,7 @@ def run_training(
     # ---- Train and evaluate per fold ----
     print("\n[3/6] Training and evaluating per temporal fold...")
     report = TrainingReport(
-        timestamp=datetime.now().isoformat(),
+        timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         n_folds=len(folds),
         pre_registered_margin=PRE_REGISTERED_MARGIN,
     )
@@ -803,40 +804,15 @@ def run_training(
         json.dump(eval_data, f, indent=2, default=str)
 
     # Save human-readable report
-    _write_evaluation_report(report, tier_names, output_path)
+    write_evaluation_report(output_path, **family_report("pfp", eval_data))
 
     # Emit metadata.json (Phase 8 provenance: metrics, decision rule, artifacts)
-    winner_stats = report.aggregate_metrics.get(report.winner, {})
     metadata = build_metadata(
-        model_id=f"pfp-{report.winner}",
-        family="pfp",
-        feature_columns=used_features,
-        metrics={
-            "primary": {
-                "name": "macro_f1",
-                "value": winner_stats.get("macro_f1_mean", 0.0),
-                "threshold": None,
-                "folds": report.n_folds,
-            },
-            "secondary": {
-                "accuracy": winner_stats.get("accuracy_mean", 0.0),
-                "macro_f1_std": winner_stats.get("macro_f1_std", 0.0),
-                "accuracy_std": winner_stats.get("accuracy_std", 0.0),
-            },
-        },
-        decision_rule=(
-            "winner must beat the rule-based Tier 1 by >2 points of Macro-F1; "
-            "otherwise fall back to Tier 1"
-        ),
-        framework="scikit-learn",
-        framework_version=framework_version_of("scikit-learn"),
-        artifacts=[WINNER_ARTIFACTS.get(report.winner, "tier3_svm.joblib")],
-        data_sources=[Path(input_dir) / f"{name}.parquet" for name in ("train", "val", "test")],
-        winner_reason=report.winner_reason,
-        extra={
-            "winner": report.winner,
-            "winner_artifact": WINNER_ARTIFACTS.get(report.winner, "tier3_svm.joblib"),
-        },
+        **family_metadata(
+            "pfp",
+            eval_data,
+            data_sources=[Path(input_dir) / f"{name}.parquet" for name in ("train", "val", "test")],
+        )
     )
     write_metadata(metadata, output_path)
 
@@ -850,95 +826,6 @@ def run_training(
     print("=" * 60)
 
     return report
-
-
-def _write_evaluation_report(report: TrainingReport, tier_names: list[str], output_path: Path):
-    """Write human-readable evaluation report."""
-    lines = [
-        "# PFP Classifier — Evaluation Report",
-        "",
-        f"**Generated:** {report.timestamp}",
-        f"**Folds:** {report.n_folds}",
-        f"**Pre-registered margin:** {report.pre_registered_margin}",
-        "",
-        "---",
-        "",
-        "## Winner",
-        "",
-        f"**{report.winner}**",
-        "",
-        f"> {report.winner_reason}",
-        "",
-        "---",
-        "",
-        "## Aggregate Results",
-        "",
-        "| Tier | Macro-F1 (mean ± std) | Accuracy (mean ± std) |",
-        "|------|----------------------|----------------------|",
-    ]
-
-    for tier_name in tier_names:
-        m = report.aggregate_metrics.get(tier_name, {})
-        f1_mean = m.get("macro_f1_mean", 0)
-        f1_std = m.get("macro_f1_std", 0)
-        acc_mean = m.get("accuracy_mean", 0)
-        acc_std = m.get("accuracy_std", 0)
-        lines.append(
-            f"| {tier_name} | {f1_mean:.4f} ± {f1_std:.4f} | {acc_mean:.4f} ± {acc_std:.4f} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "---",
-            "",
-            "## Per-Fold Results",
-            "",
-        ]
-    )
-
-    for fr in report.fold_results:
-        lines.append(f"### Fold {fr.fold}")
-        lines.append("")
-        lines.append(f"- Train months: {fr.train_months}")
-        lines.append(f"- Test months: {fr.test_months}")
-        lines.append(f"- Train personas: {fr.n_train_personas}")
-        lines.append(f"- Test personas: {fr.n_test_personas}")
-        lines.append("")
-        lines.append("| Tier | Macro-F1 | Accuracy |")
-        lines.append("|------|----------|----------|")
-        for tier_name, metrics in fr.tier_results.items():
-            if isinstance(metrics, dict) and "macro_f1" in metrics:
-                lines.append(
-                    f"| {tier_name} | {metrics['macro_f1']:.4f} | {metrics['accuracy']:.4f} |"
-                )
-        lines.append("")
-
-    # Per-class accuracy from last fold
-    if report.fold_results:
-        last_fold = report.fold_results[-1]
-        short_classes = [
-            c.split("/")[0][0] + c.split("/")[1][0] + c.split("/")[2][0] for c in PFP_CLASSES
-        ]
-        lines.extend(
-            [
-                "---",
-                "",
-                "## Per-Class Accuracy (Last Fold)",
-                "",
-                "| Tier | " + " | ".join(PFP_CLASSES) + " |",
-                "|------|" + "|".join(["------"] * len(PFP_CLASSES)) + "|",
-            ]
-        )
-        for tier_name in tier_names:
-            metrics = last_fold.tier_results.get(tier_name, {})
-            if isinstance(metrics, dict) and "per_class_accuracy" in metrics:
-                accs = [f"{metrics['per_class_accuracy'].get(c, 0):.4f}" for c in PFP_CLASSES]
-                lines.append(f"| {tier_name} | " + " | ".join(accs) + " |")
-        lines.append("")
-
-    with open(output_path / "evaluation_report.md", "w") as f:
-        f.write("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------

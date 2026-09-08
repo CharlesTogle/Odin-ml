@@ -85,13 +85,43 @@ def build_metadata(
     framework_version: str,
     artifacts: list[str],
     data_sources: list[Path],
+    winner: str | None = None,
+    winner_artifact: str | None = None,
     winner_reason: str | None = None,
+    winner_params: dict[str, Any] | None = None,
+    threshold: float | None = None,
     serving_note: str = "loaded by app/models/loader.py",
     fitted: bool = True,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Assemble a metadata.json dict per the models/README.md schema."""
-    meta: dict[str, Any] = {
+    """Assemble a metadata.json dict per the models/README.md schema.
+
+    Every family emits the same winner contract (`winner`, `winner_artifact`,
+    `winner_reason`, `winner_params`, `threshold`) so new/model-modifying
+    runs are resolved at serve time from metadata alone.
+    """
+    key_order = [
+        "model_id",
+        "family",
+        "created_at",
+        "training_commit",
+        "training_data_hash",
+        "framework",
+        "framework_version",
+        "python_version",
+        "artifacts",
+        "feature_columns",
+        "metrics",
+        "decision_rule",
+        "winner",
+        "winner_artifact",
+        "winner_reason",
+        "winner_params",
+        "threshold",
+        "fitted",
+        "serving_note",
+    ]
+    values: dict[str, Any] = {
         "model_id": model_id,
         "family": family,
         "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -104,14 +134,17 @@ def build_metadata(
         "feature_columns": feature_columns,
         "metrics": metrics,
         "decision_rule": decision_rule,
+        "winner": winner,
+        "winner_artifact": winner_artifact,
+        "winner_reason": winner_reason,
+        "winner_params": winner_params,
+        "threshold": threshold,
         "fitted": fitted,
         "serving_note": serving_note,
     }
-    if winner_reason:
-        meta["winner_reason"] = winner_reason
     if extra:
-        meta.update(extra)
-    return meta
+        values.update(extra)
+    return {key: values[key] for key in key_order if key in values}
 
 
 def write_metadata(metadata: dict[str, Any], output_dir: Path) -> Path:

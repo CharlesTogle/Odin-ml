@@ -33,7 +33,7 @@ import os
 import sys
 import time
 import warnings
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import joblib
@@ -51,8 +51,9 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.ml.metadata import build_metadata, framework_version_of, write_metadata
+from app.ml.metadata import build_metadata, write_metadata
 from app.ml.models import AdaptiveThresholdDetector, HybridEnsemble, IQRDetector, _Autoencoder
+from app.ml.reporting import family_metadata, family_report, write_evaluation_report
 
 HAS_PYTORCH = False
 torch = None
@@ -831,7 +832,7 @@ def main():
 
     # Save evaluation report
     report = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "task": "anomaly_detection",
         "task_type": "unsupervised_binary_classification",
         "n_features": len(FEATURE_COLS),
@@ -843,6 +844,7 @@ def main():
         "anomaly_rate_val": float(val_df[LABEL_COL].mean()),
         "anomaly_rate_test": float(test_df[LABEL_COL].mean()),
         "winner": best_model_name,
+        "winner_artifact": "anomaly_detector.joblib",
         "winner_params": winner_params,
         "decision_rule": {
             "f1_target": 0.85,
@@ -873,51 +875,17 @@ def main():
     plot_pr_curves(y_test_final, {"winner": test_scores}, output_dir)
 
     # Save markdown report
-    _write_report(report, output_dir)
+    write_evaluation_report(output_dir, **family_report("anomaly", report))
 
     # Emit metadata.json (Phase 8 provenance: hash, commit, metrics, rule)
-    selected_stats = summary[best_model_name]
     metadata = build_metadata(
-        model_id=f"anomaly-{best_model_name}",
-        family="anomaly",
-        feature_columns=FEATURE_COLS,
-        metrics={
-            "primary": {
-                "name": "f1",
-                "value": final_metrics["f1"],
-                "threshold": threshold,
-                "folds": len(folds),
-            },
-            "secondary": {
-                "accuracy": final_metrics["accuracy"],
-                "precision": final_metrics["precision"],
-                "recall": final_metrics["recall"],
-                "pr_auc": final_metrics["pr_auc"],
-                "roc_auc": final_metrics["roc_auc"],
-                "fold_f1_mean": selected_stats.get("f1_mean"),
-                "fold_f1_std": selected_stats.get("f1_std"),
-            },
-        },
-        decision_rule=(
-            "winner must beat the IQR baseline by >=50% F1 improvement and "
-            "reach F1 >= 0.85; otherwise fall back to IQR"
-        ),
-        framework="scikit-learn",
-        framework_version=framework_version_of("scikit-learn"),
-        artifacts=["anomaly_detector.joblib"],
-        data_sources=[
-            Path(args.input) / name for name in ("train.parquet", "val.parquet", "test.parquet")
-        ],
-        winner_reason=(
-            f"selected {best_model_name} under the pre-registered rule; "
-            f"F1 improvement over IQR = {f1_improvement * 100:.1f}% "
-            f"(rule_passed={rule_passed})"
-        ),
-        extra={
-            "winner": best_model_name,
-            "winner_params": winner_params,
-            "val_selected_threshold": threshold,
-        },
+        **family_metadata(
+            "anomaly",
+            report,
+            data_sources=[
+                Path(args.input) / name for name in ("train.parquet", "val.parquet", "test.parquet")
+            ],
+        )
     )
     write_metadata(metadata, output_dir)
 
@@ -926,95 +894,6 @@ def main():
         f"\n[6/6] Done. Winner: {best_model_name}, "
         f"Test F1: {final_metrics['f1']:.4f}, {elapsed:.1f}s"
     )
-
-
-def _write_report(report: dict, output_dir: Path):
-    """Write markdown evaluation report."""
-    lines = [
-        "# Anomaly Detector Training Report",
-        "",
-        f"**Timestamp:** {report['timestamp']}",
-        "**Task:** Transaction-level anomaly detection (unsupervised)",
-        f"**Features:** {report['n_features']}",
-        f"**Train/Val/Test:** {report['n_train']}/{report['n_val']}/{report['n_test']}",
-        f"**Anomaly rate (train):** {report['anomaly_rate_train'] * 100:.2f}%",
-        f"**Anomaly rate (val):** {report['anomaly_rate_val'] * 100:.2f}%",
-        f"**Anomaly rate (test):** {report['anomaly_rate_test'] * 100:.2f}%",
-        "",
-        "## Fold Summary",
-        "",
-        "| Model | F1 (mean±std) | Accuracy (mean) | PR-AUC (mean±std) |",
-        "|-------|---------------|-----------------|-------------------|",
-    ]
-
-    summary = report["fold_summary"]
-    for name, stats in sorted(summary.items(), key=lambda x: -x[1].get("f1_mean", 0)):
-        if name == "baseline":
-            lines.append(
-                f"| {name} | {stats['f1_mean']:.4f} ± {stats['f1_std']:.4f} "
-                f"| {stats['accuracy_mean']:.4f} | N/A |"
-            )
-        else:
-            lines.append(
-                f"| {name} | {stats['f1_mean']:.4f} ± {stats['f1_std']:.4f} "
-                f"| {stats.get('accuracy_mean', 0):.4f} "
-                f"| {stats.get('pr_auc_mean', 0):.4f} ± {stats.get('pr_auc_std', 0):.4f} |"
-            )
-
-    drule = report.get("decision_rule", {})
-    lines.extend(
-        [
-            "",
-            f"## Winner: {report['winner']}",
-            "",
-            f"**Decision rule:** F1 improvement over IQR baseline: "
-            f"{drule.get('f1_improvement_over_iqr_pct', 0):.1f}% "
-            f"(target >= 50%), F1 target >= 0.85, passed: {drule.get('rule_passed')}",
-            "",
-            "## Final Test Metrics (threshold selected on held-out val)",
-            "",
-            f"- **Operating threshold:** {report['val_selected_threshold']:.4f}",
-            f"- **Accuracy:** {report['final_test_metrics']['accuracy']:.4f}",
-            f"- **Precision:** {report['final_test_metrics']['precision']:.4f}",
-            f"- **Recall:** {report['final_test_metrics']['recall']:.4f}",
-            f"- **F1:** {report['final_test_metrics']['f1']:.4f}",
-            f"- **PR-AUC (supplementary):** {report['final_test_metrics']['pr_auc']:.4f}",
-            f"- **ROC-AUC (supplementary):** {report['final_test_metrics']['roc_auc']:.4f}",
-            f"- **TP/FP/FN/TN:** {report['final_test_metrics']['tp']}/{report['final_test_metrics']['fp']}"
-            f"/{report['final_test_metrics']['fn']}/{report['final_test_metrics']['tn']}",
-            "",
-            "## Analysis",
-            "",
-            "### Key Findings",
-            "",
-            f"- **Class imbalance:** ~{report['anomaly_rate_train'] * 100:.1f}% anomaly rate",
-            "- **Primary metrics are Accuracy/Precision/Recall/F1** (MDD v2.3); "
-            "PR-AUC/ROC retained as supplementary",
-            "- **IQR provides interpretable statistical baseline** with per-feature thresholds",
-            "- **Isolation Forest handles unsupervised detection**; contamination set to the "
-            "observed training anomaly rate",
-            "- **Operating threshold is selected on the held-out val split** to avoid test leakage",
-            "",
-            "### Anomaly Types",
-            "",
-            "Synthetic data injects 4 anomaly types (`anomaly_type` column):",
-            "",
-            "1. **amount_spike** — unusually high transaction amount",
-            "2. **new_merchant** — first transaction with a new merchant",
-            "3. **frequency_change** — abnormal transaction frequency",
-            "4. **category_mismatch** — transaction category inconsistent with expectation",
-            "",
-            "### Recommendations",
-            "",
-            "1. Deploy the winning model for real-time scoring",
-            "2. Set anomaly threshold based on business tolerance (precision vs recall)",
-            "3. Monitor model performance on incoming data for drift",
-            "4. Consider ensemble approach for production robustness",
-        ]
-    )
-
-    with open(output_dir / "evaluation_report.md", "w") as f:
-        f.write("\n".join(lines))
 
 
 if __name__ == "__main__":

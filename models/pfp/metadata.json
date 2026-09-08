@@ -1,8 +1,8 @@
 {
   "model_id": "pfp-tier3_svm",
   "family": "pfp",
-  "created_at": "2026-09-08T01:17:07.004276Z",
-  "training_commit": "5b4f274",
+  "created_at": "2026-09-08T03:44:35.601990Z",
+  "training_commit": "9aa973a",
   "training_data_hash": "47ae526f3a61776fb68903438a44f9689e3cbe85561eeccafc454eacc94d4f2e",
   "framework": "scikit-learn",
   "framework_version": "1.9.0",
@@ -44,10 +44,12 @@
       "accuracy_std": 0.014153479701272077
     }
   },
-  "decision_rule": "winner must beat the rule-based Tier 1 by >2 points of Macro-F1; otherwise fall back to Tier 1",
-  "fitted": true,
-  "serving_note": "loaded by app/models/loader.py",
-  "winner_reason": "Best learned model (tier3_svm) beats Tier 1 by 0.6050 (> 0.02 margin)",
+  "decision_rule": "winner must beat the rule-based Tier 1 by > 0.02 Macro-F1, else fall back to Tier 1",
   "winner": "tier3_svm",
-  "winner_artifact": "tier3_svm.joblib"
+  "winner_artifact": "tier3_svm.joblib",
+  "winner_reason": "Best learned model (tier3_svm) beats Tier 1 by 0.6050 (> 0.02 margin)",
+  "winner_params": null,
+  "threshold": null,
+  "fitted": true,
+  "serving_note": "loaded by app/models/loader.py"
 }

@@ -1,18 +1,19 @@
-# PFP Classifier — Evaluation Report
+# PFP — PFP Classification Evaluation Report
 
-**Generated:** 2026-09-08T09:13:23.075517
+**Generated:** 2026-09-08T03:44:35.601990Z
 **Folds:** 5
-**Pre-registered margin:** 0.02
-
----
+**Decision rule:** winner must beat the rule-based Tier 1 by > 0.02 Macro-F1, else fall back to Tier 1
 
 ## Winner
 
-**tier3_svm**
+- **Tier:** tier3_svm
+- **Artifact:** tier3_svm.joblib
+- **Reason:** Best learned model (tier3_svm) beats Tier 1 by 0.6050 (> 0.02 margin)
 
-> Best learned model (tier3_svm) beats Tier 1 by 0.6050 (> 0.02 margin)
+## Approval Criteria Result
 
----
+**Result:** PASS — Best learned model (tier3_svm) beats Tier 1 by 0.6050 (> 0.02 margin)
+Required margin: > 0.02 Macro-F1 over Tier 1.
 
 ## Aggregate Results
 
@@ -24,8 +25,6 @@
 | tier2_naive_bayes | 0.4975 ± 0.0028 | 0.4726 ± 0.0024 |
 | tier3_random_forest | 0.6585 ± 0.0282 | 0.6548 ± 0.0279 |
 | tier3_svm | 0.6745 ± 0.0156 | 0.6770 ± 0.0142 |
-
----
 
 ## Per-Fold Results
 
@@ -121,3 +120,4 @@
 | tier2_naive_bayes | 0.4305 | 0.4467 | 0.8710 | 0.3366 | 0.8333 | 0.3290 | 0.4684 | 0.4552 |
 | tier3_random_forest | 0.8305 | 0.4333 | 0.9484 | 0.3529 | 0.7400 | 0.8664 | 0.7595 | 0.6667 |
 | tier3_svm | 0.7220 | 0.5667 | 0.9226 | 0.4869 | 0.8600 | 0.8567 | 0.4937 | 0.6774 |
+

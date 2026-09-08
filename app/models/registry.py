@@ -16,26 +16,16 @@ FORECASTER_MODULE = "forecaster"
 ANOMALY_MODULE = "anomaly"
 ANOMALY_ARTIFACT = "anomaly_detector.joblib"
 
-PFP_WINNER_ARTIFACTS = {
-    "tier0_majority": "tier0_majority.joblib",
-    "tier1_rule_based": "tier1_rule_based.joblib",
-    "tier2_logistic_regression": "tier2_logistic_regression.joblib",
-    "tier2_naive_bayes": "tier2_naive_bayes.joblib",
-    "tier3_random_forest": "tier3_random_forest.joblib",
-    "tier3_svm": "tier3_svm.joblib",
-    "tier4_xgboost": "tier4_xgboost.joblib",
-}
-
 
 def _resolve_pfp_artifact(evaluation: dict) -> str:
     """Resolve the pfp winner artifact filename from evaluation.json."""
-    winner = evaluation.get("winner")
     artifact = evaluation.get("winner_artifact")
     if artifact and isinstance(artifact, str) and artifact.endswith(".joblib"):
         return artifact
-    if winner in PFP_WINNER_ARTIFACTS:
-        return PFP_WINNER_ARTIFACTS[winner]
-    return "tier3_svm.joblib"
+    winner = evaluation.get("winner")
+    if winner:
+        return f"{winner}.joblib"
+    return "tier1_rule_based.joblib"
 
 
 logger = logging.getLogger(__name__)
@@ -51,42 +41,44 @@ class ModuleModel:
 
 
 def _resolve_forecaster_artifact(evaluation: dict, output_dir) -> tuple[str, Any]:
-    """Load the forecaster winner artifact from evaluation.json."""
-    winner = evaluation.get("winner", "tier2_random_forest")
-    if winner == "tier2_random_forest":
-        artifact = "tier2_random_forest.joblib"
-        model = ModelLoader().load_joblib(FORECASTER_MODULE, artifact)
-        return artifact, model
-    # Statsmodels pooled forecaster winner (ARIMA/SARIMA; user-normalized pool)
-    if winner in ("tier3_arima", "tier3_sarima"):
-        artifact = f"{winner}.joblib"
-        model = ModelLoader().load_joblib(FORECASTER_MODULE, artifact)
-        return artifact, model
-    # PyTorch winner (tier3_gru, tier3_lstm, tier3_bilstm)
-    pth_path = output_dir / f"{winner}.pth"
-    meta_path = output_dir / f"{winner}_meta.joblib"
-    if pth_path.exists() and meta_path.exists():
-        import joblib
+    """Load the forecaster winner artifact selected by evaluation.json.
 
-        meta = joblib.load(str(meta_path))
-        state = torch.load(str(pth_path), map_location="cpu", weights_only=True)
-        variant = state.get("model_type", winner.replace("tier3_", ""))
-        input_size = state.get("input_size", 20)
-        hidden_size = state.get("hidden_size", 32)
-        seq_length = state.get("seq_length", 3)
-        model = _SequenceForecaster(input_size, hidden_size, variant)
-        model.load_state_dict(state["model_state_dict"])
-        model.eval()
-        return winner, {
-            "model": model,
-            "scaler": meta["scaler"],
-            "feature_cols": meta["feature_cols"],
-            "seq_length": seq_length,
-        }
-    # Fallback to RF
-    return "tier2_random_forest.joblib", ModelLoader().load_joblib(
-        FORECASTER_MODULE, "tier2_random_forest.joblib"
+    `winner_artifact` names the primary serving artifact; PyTorch winners keep
+    the `.pth` + `_meta.joblib` pair and are rebuilt into a `_SequenceForecaster`.
+    """
+    winner = evaluation.get("winner", "")
+    artifact = evaluation.get("winner_artifact") or (f"{winner}.joblib" if winner else "")
+    if not artifact:
+        raise FileNotFoundError(f"no forecaster artifact for winner '{winner}'")
+
+    pth_name = artifact if artifact.endswith(".pth") else None
+    pth_path = (
+        output_dir / pth_name
+        if pth_name
+        else (output_dir / f"{winner}.pth" if winner.startswith("tier3_") else None)
     )
+    if pth_path is not None and pth_path.exists():
+        meta_path = pth_path.with_name(f"{pth_path.stem}_meta.joblib")
+        if meta_path.exists():
+            import joblib
+
+            meta = joblib.load(str(meta_path))
+            state = torch.load(str(pth_path), map_location="cpu", weights_only=True)
+            variant = state.get("model_type", winner.replace("tier3_", ""))
+            input_size = state.get("input_size", 20)
+            hidden_size = state.get("hidden_size", 32)
+            seq_length = state.get("seq_length", 3)
+            model = _SequenceForecaster(input_size, hidden_size, variant)
+            model.load_state_dict(state["model_state_dict"])
+            model.eval()
+            return f"{winner}.pth", {
+                "model": model,
+                "scaler": meta["scaler"],
+                "feature_cols": meta["feature_cols"],
+                "seq_length": seq_length,
+            }
+
+    return artifact, ModelLoader().load_joblib(FORECASTER_MODULE, artifact)
 
 
 class ModelRegistry:
@@ -149,7 +141,10 @@ class ModelRegistry:
     def _load_anomaly(self) -> ModuleModel:
         evaluation = self.loader.load_json(ANOMALY_MODULE, "evaluation.json")
         feature_columns = evaluation.get("feature_columns", [])
-        model = self.loader.load_joblib(ANOMALY_MODULE, ANOMALY_ARTIFACT)
+        artifact = evaluation.get("winner_artifact")
+        if not artifact or not isinstance(artifact, str) or not artifact.endswith(".joblib"):
+            artifact = ANOMALY_ARTIFACT
+        model = self.loader.load_joblib(ANOMALY_MODULE, artifact)
         threshold = (
             evaluation.get("val_selected_threshold")
             or evaluation.get("final_test_metrics", {}).get("best_threshold")

@@ -30,7 +30,7 @@ import os
 import time
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,8 +50,9 @@ import sys
 # self-contained, replicable training pipeline.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.ml.metadata import build_metadata, framework_version_of, write_metadata
+from app.ml.metadata import build_metadata, write_metadata
 from app.ml.models import _SequenceForecaster
+from app.ml.reporting import family_metadata, family_report, write_evaluation_report
 
 HAS_PYTORCH = False
 torch = None
@@ -822,16 +823,15 @@ def aggregate_metrics(fold_results: list) -> dict:
     return aggregate
 
 
-def _winner_artifacts(winner: str) -> list[str]:
-    """Map a winner name to its final artifact filenames."""
-    if winner == "tier2_random_forest":
-        return ["tier2_random_forest.joblib"]
-    if winner in ("tier3_arima", "tier3_sarima"):
-        return [f"{winner}.joblib"]
+def _winner_artifact_name(winner: str) -> str:
+    """Primary loadable artifact for the serving registry (winner_artifact)."""
+    if winner == "naive_baseline":
+        return ""
+    if winner in ("tier2_random_forest", "tier3_arima", "tier3_sarima"):
+        return f"{winner}.joblib"
     if winner.startswith("tier3_"):
-        variant = winner
-        return [f"{variant}.pth", f"{variant}_meta.joblib"]
-    return ["evaluation.json"]
+        return f"{winner}.pth"
+    return ""
 
 
 def apply_decision_rule(aggregate: dict, naive_mape: float) -> tuple:
@@ -994,55 +994,6 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path, winner: str)
 # ---------------------------------------------------------------------------
 
 
-def write_evaluation_report(report: TrainingReport, output_dir: Path):
-    """Write human-readable evaluation report."""
-    lines = [
-        "# Forecaster Training Evaluation Report",
-        f"\n**Timestamp:** {report.timestamp}",
-        f"**Folds:** {report.n_folds}",
-        f"**MAPE Reduction Threshold:** {PRE_REGISTERED_MAPE_REDUCTION * 100:.0f}%",
-        f"\n## Winner: {report.winner}",
-        f"**Reason:** {report.winner_reason}",
-        "\n## Aggregate Results",
-        "\n| Tier | MAE (mean±std) | SMAPE (mean±std) | MDA (mean±std) | RMSE (mean±std) | MAPE (mean±std) | R² (mean±std) | Folds |",
-        "|------|---------------|-----------------|---------------|----------------|----------------|--------------|-------|",
-    ]
-
-    def _fmt(v, suffix=""):
-        return "—" if v is None else f"{v}{suffix}"
-
-    for tier, metrics in sorted(report.aggregate_metrics.items()):
-        lines.append(
-            f"| {tier} | "
-            f"{_fmt(metrics['mae_mean'])}±{_fmt(metrics['mae_std'])} | "
-            f"{_fmt(metrics['smape_mean'])}±{_fmt(metrics['smape_std'])} | "
-            f"{_fmt(metrics['mda_mean'])}±{_fmt(metrics['mda_std'])} | "
-            f"{_fmt(metrics['rmse_mean'])}±{_fmt(metrics['rmse_std'])} | "
-            f"{_fmt(metrics['mape_mean'], '%')}±{_fmt(metrics['mape_std'], '%')} | "
-            f"{_fmt(metrics['r2_mean'])}±{_fmt(metrics['r2_std'])} | "
-            f"{metrics['n_folds']} |"
-        )
-
-    lines.append("\n## Per-Fold Results")
-    for fr in report.fold_results:
-        lines.append(f"\n### Fold {fr['fold']}")
-        lines.append(f"- Train months: {fr['train_months']}")
-        lines.append(f"- Test months: {fr['test_months']}")
-        lines.append(f"- Train samples: {fr['n_train']}")
-        lines.append(f"- Test samples: {fr['n_test']}")
-        lines.append("\n| Tier | MAE | SMAPE | MDA | RMSE | MAPE | R² |")
-        lines.append("|------|-----|-------|-----|------|------|-----|")
-        for tier, m in sorted(fr["tier_results"].items()):
-            lines.append(
-                f"| {tier} | {m['mae']:.2f} | {m['smape']:.2f}% | "
-                f"{m['mda']:.4f} | {m['rmse']:.2f} | "
-                f"{m['mape']:.2f}% | {m['r2']:.4f} |"
-            )
-
-    with open(output_dir / "evaluation_report.md", "w") as f:
-        f.write("\n".join(lines))
-
-
 # ---------------------------------------------------------------------------
 # Main Pipeline
 # ---------------------------------------------------------------------------
@@ -1050,7 +1001,7 @@ def write_evaluation_report(report: TrainingReport, output_dir: Path):
 
 def run_training(config: dict) -> TrainingReport:
     start_time = time.time()
-    report = TrainingReport(timestamp=datetime.now().isoformat())
+    report = TrainingReport(timestamp=datetime.now(UTC).isoformat().replace("+00:00", "Z"))
 
     input_dir = config["input"]
     output_dir = Path(config["output"])
@@ -1105,6 +1056,7 @@ def run_training(config: dict) -> TrainingReport:
         "feature_columns": feature_cols,
         "aggregate_metrics": report.aggregate_metrics,
         "winner": report.winner,
+        "winner_artifact": _winner_artifact_name(report.winner),
         "winner_reason": report.winner_reason,
         "fold_details": report.fold_results,
     }
@@ -1112,41 +1064,10 @@ def run_training(config: dict) -> TrainingReport:
         json.dump(eval_json, f, indent=2)
 
     # Write report
-    write_evaluation_report(report, output_dir)
+    write_evaluation_report(output_dir, **family_report("forecaster", eval_json))
 
     # Emit metadata.json (Phase 8 provenance: hash, commit, metrics, rule)
-    winner_stats = report.aggregate_metrics.get(winner, {})
-    metadata = build_metadata(
-        model_id=f"forecaster-{winner}",
-        family="forecaster",
-        feature_columns=feature_cols,
-        metrics={
-            "primary": {
-                "name": "mape",
-                "value": winner_stats.get("mape_mean"),
-                "reduction_vs_naive_pct": (1.0 - winner_stats.get("mape_mean") / naive_mape)
-                if naive_mape and winner_stats.get("mape_mean")
-                else None,
-                "folds": report.n_folds,
-            },
-            "secondary": {
-                key: winner_stats[key]
-                for key in ("mae_mean", "smape_mean", "mda_mean", "rmse_mean", "r2_mean")
-                if key in winner_stats
-            },
-        },
-        decision_rule=(
-            f"best model must beat the naive baseline by "
-            f">={PRE_REGISTERED_MAPE_REDUCTION * 100:.0f}% MAPE reduction"
-        ),
-        framework="statsmodels" if winner == "tier3_arima" else "scikit-learn",
-        framework_version=framework_version_of(
-            "statsmodels" if winner == "tier3_arima" else "scikit-learn"
-        ),
-        artifacts=_winner_artifacts(winner),
-        data_sources=data_sources,
-        winner_reason=reason,
-    )
+    metadata = build_metadata(**family_metadata("forecaster", eval_json, data_sources=data_sources))
     write_metadata(metadata, output_dir)
 
     elapsed = time.time() - start_time
