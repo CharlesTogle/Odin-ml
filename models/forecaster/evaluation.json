@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-07T22:38:16.823282",
+  "timestamp": "2026-09-08T08:46:12.325248",
   "n_folds": 5,
   "pre_registered_mape_reduction": 0.2,
   "naive_mape": 37.4519,
@@ -26,6 +26,21 @@
     "monetary_30d"
   ],
   "aggregate_metrics": {
+    "tier3_sarima": {
+      "mae_mean": 3162.6796,
+      "mae_std": 74.962,
+      "smape_mean": 9.3813,
+      "smape_std": 0.2297,
+      "mda_mean": 0.7126,
+      "mda_std": 0.0076,
+      "rmse_mean": 5257.265,
+      "rmse_std": 99.4437,
+      "mape_mean": 9.3957,
+      "mape_std": 0.2457,
+      "r2_mean": 0.8017,
+      "r2_std": 0.0066,
+      "n_folds": 5
+    },
     "naive_baseline": {
       "mae_mean": 9350.382,
       "mae_std": 8.7519,
@@ -57,8 +72,8 @@
       "n_folds": 5
     }
   },
-  "winner": "tier3_arima",
-  "winner_reason": "tier3_arima reduces MAPE by 74.9% (>20% threshold)",
+  "winner": "tier3_sarima",
+  "winner_reason": "tier3_sarima reduces MAPE by 74.9% (>20% threshold)",
   "fold_details": [
     {
       "fold": 1,
@@ -93,6 +108,15 @@
           "mape": 9.8203,
           "r2": 0.7893,
           "tier": "tier3_arima"
+        },
+        "tier3_sarima": {
+          "mae": 3291.3872,
+          "smape": 9.7716,
+          "mda": 0.6981,
+          "rmse": 5447.0576,
+          "mape": 9.8203,
+          "r2": 0.7893,
+          "tier": "tier3_sarima"
         }
       }
     },
@@ -130,6 +154,15 @@
           "mape": 9.4155,
           "r2": 0.8028,
           "tier": "tier3_arima"
+        },
+        "tier3_sarima": {
+          "mae": 3166.5459,
+          "smape": 9.4032,
+          "mda": 0.7171,
+          "rmse": 5240.4456,
+          "mape": 9.4155,
+          "r2": 0.8028,
+          "tier": "tier3_sarima"
         }
       }
     },
@@ -168,6 +201,15 @@
           "mape": 9.4374,
           "r2": 0.8022,
           "tier": "tier3_arima"
+        },
+        "tier3_sarima": {
+          "mae": 3177.8893,
+          "smape": 9.4288,
+          "mda": 0.7118,
+          "rmse": 5237.1447,
+          "mape": 9.4374,
+          "r2": 0.8022,
+          "tier": "tier3_sarima"
         }
       }
     },
@@ -207,6 +249,15 @@
           "mape": 9.1763,
           "r2": 0.8056,
           "tier": "tier3_arima"
+        },
+        "tier3_sarima": {
+          "mae": 3102.2893,
+          "smape": 9.1896,
+          "mda": 0.7185,
+          "rmse": 5203.7979,
+          "mape": 9.1763,
+          "r2": 0.8056,
+          "tier": "tier3_sarima"
         }
       }
     },
@@ -247,6 +298,15 @@
           "mape": 9.1289,
           "r2": 0.8087,
           "tier": "tier3_arima"
+        },
+        "tier3_sarima": {
+          "mae": 3075.2864,
+          "smape": 9.1132,
+          "mda": 0.7177,
+          "rmse": 5157.8792,
+          "mape": 9.1289,
+          "r2": 0.8087,
+          "tier": "tier3_sarima"
         }
       }
     }

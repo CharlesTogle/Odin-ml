@@ -1,14 +1,14 @@
 {
-  "model_id": "forecaster-tier3_arima",
+  "model_id": "forecaster-tier3_sarima",
   "family": "forecaster",
-  "created_at": "2026-09-07T14:38:44.361228Z",
-  "training_commit": "23eef57",
+  "created_at": "2026-09-08T01:01:51.809273Z",
+  "training_commit": "5b4f274",
   "training_data_hash": "344e4900d223aa9badb26927873dac82a553b1a490042c5f8f985ca3cca6941b",
-  "framework": "statsmodels",
-  "framework_version": "0.15.0",
+  "framework": "scikit-learn",
+  "framework_version": "1.9.0",
   "python_version": "3.14.4",
   "artifacts": [
-    "tier3_arima.joblib"
+    "tier3_sarima.joblib"
   ],
   "feature_columns": [
     "day_of_week_sin",
@@ -50,5 +50,5 @@
   "decision_rule": "best model must beat the naive baseline by >=20% MAPE reduction",
   "fitted": true,
   "serving_note": "loaded by app/models/loader.py",
-  "winner_reason": "tier3_arima reduces MAPE by 74.9% (>20% threshold)"
+  "winner_reason": "tier3_sarima reduces MAPE by 74.9% (>20% threshold)"
 }

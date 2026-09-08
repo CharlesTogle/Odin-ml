@@ -20,9 +20,10 @@ from app.services.features import (
 def _predict_monthly_total(model: ModuleModel, transactions: list[dict]) -> tuple[float, dict]:
     artifact = model.model
 
-    if isinstance(artifact, dict) and artifact.get("kind") == "arima":
-        # Pooled ARIMA forecaster: the pool path is scale-normalized per user,
-        # so rescale it by the requesting user's own recent expense level.
+    if isinstance(artifact, dict) and artifact.get("kind") in ("arima", "sarima"):
+        # Pooled classical forecaster (ARIMA/SARIMA): the pool path is
+        # scale-normalized per user, so rescale it by the requesting user's own
+        # recent expense level.
         arima = artifact["model"]
         pool_level = float(artifact.get("pool_level", 1.0))
         pool_pred = float(arima.forecast(1).iloc[0]) if arima is not None else pool_level

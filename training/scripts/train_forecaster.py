@@ -385,6 +385,46 @@ def forecast_arima_pool(hist: pd.DataFrame, target_row_months: list) -> tuple[di
     return dict(zip(target_order, np.asarray(forecast_vals, dtype=float), strict=True)), n_fits
 
 
+def forecast_sarima_pool(hist: pd.DataFrame, target_row_months: list) -> tuple[dict, int]:
+    """SARIMA variant of the pooled user-normalized forecast.
+
+    Same pool construction as :func:`forecast_arima_pool`. Uses a seasonal
+    component only when the pooled series spans >= 24 months (<= 12 rows is
+    typical for the current 12-month synthetic horizon, which degrades the
+    seasonal order back to plain ARIMA). Returns ({month: scalar}, n_fits).
+    """
+    n_fits = 0
+    hist = hist[hist["target_expenses"].notna()].copy()
+    if hist.empty:
+        return {}, n_fits
+
+    user_mean = hist.groupby("user_id")["target_expenses"].transform("mean").replace(0, np.nan)
+    hist["norm"] = hist["target_expenses"] / user_mean
+
+    pooled = hist.groupby("month")["norm"].mean().sort_index().reset_index(drop=True)
+    if HAS_STATSMODELS and len(pooled) >= ARIMA_MIN_HISTORY:
+        try:
+            if len(pooled) >= 24:
+                from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+                model = SARIMAX(pooled, order=ARIMA_ORDER, seasonal_order=(1, 0, 0, 12)).fit(
+                    disp=False
+                )
+                n_fits = 1
+            else:
+                model = ARIMA(pooled, order=ARIMA_ORDER).fit(method="burg")
+                n_fits = 1
+            forecast_vals = model.forecast(len(target_row_months))
+        except Exception:
+            model = ARIMA(pooled, order=ARIMA_ORDER).fit(method="burg")
+            forecast_vals = model.forecast(len(target_row_months))
+    else:
+        forecast_vals = np.full(len(target_row_months), pooled.mean())
+
+    target_order = sorted(target_row_months)
+    return dict(zip(target_order, np.asarray(forecast_vals, dtype=float), strict=True)), n_fits
+
+
 # ---------------------------------------------------------------------------
 # PyTorch Sequence Model (GRU)
 # ---------------------------------------------------------------------------
@@ -597,19 +637,22 @@ def run_wfv(
             f"SMAPE={naive_metrics['smape']:.2f}%, MDA={naive_metrics['mda']:.4f}"
         )
 
-        # --- Tier 3a: ARIMA (pooled user-normalized; one fit per fold) ---
+        # --- Tier 3a (variant): ARIMA (pooled user-normalized; one fit/fold) ---
         arima_hist = all_monthly[all_monthly["month"] <= max(train_months)]
-        arima_path, arima_n_fits = forecast_arima_pool(arima_hist, target_row_months)
-        if arima_path:
-            # Rescale the normalized pooled path by each user's trailing mean.
-            user_means = arima_hist.groupby("user_id")["target_expenses"].mean()
-            global_mean = float(arima_hist["target_expenses"].mean())
-            arima_pred = np.array(
+        user_means = arima_hist.groupby("user_id")["target_expenses"].mean()
+        global_mean = float(arima_hist["target_expenses"].mean())
+
+        def _rescale_pooled(path_map):
+            return np.array(
                 [
-                    arima_path.get(int(month), 1.0) * float(user_means.get(uid, global_mean))
+                    path_map.get(int(month), 1.0) * float(user_means.get(uid, global_mean))
                     for uid, month in zip(test_actual["user_id"], test_actual["month"], strict=True)
                 ]
             )
+
+        arima_path, arima_n_fits = forecast_arima_pool(arima_hist, target_row_months)
+        if arima_path:
+            arima_pred = _rescale_pooled(arima_path)
             arima_metrics = compute_metrics(
                 test_actual["target_expenses"].values,
                 arima_pred,
@@ -624,6 +667,25 @@ def run_wfv(
             )
         else:
             print("  ARIMA: Skipped (empty pooled series)")
+
+        # --- Tier 3a (variant): SARIMA (seasonal only when pool >= 24 mo) ---
+        sarima_path, sarima_n_fits = forecast_sarima_pool(arima_hist, target_row_months)
+        if sarima_path:
+            sarima_pred = _rescale_pooled(sarima_path)
+            sarima_metrics = compute_metrics(
+                test_actual["target_expenses"].values,
+                sarima_pred,
+                "tier3_sarima",
+                y_prev=naive_y_prev,
+            )
+            fold_results["tier_results"]["tier3_sarima"] = sarima_metrics
+            print(
+                f"  SARIMA: MAPE={sarima_metrics['mape']:.2f}%, "
+                f"SMAPE={sarima_metrics['smape']:.2f}%, MDA={sarima_metrics['mda']:.4f}, "
+                f"R²={sarima_metrics['r2']:.4f} (pool fits={sarima_n_fits})"
+            )
+        else:
+            print("  SARIMA: Skipped (empty pooled series)")
 
         # --- Tier 2: Random Forest ---
         # Train on train months, test on test months (with lookback context)
@@ -764,8 +826,8 @@ def _winner_artifacts(winner: str) -> list[str]:
     """Map a winner name to its final artifact filenames."""
     if winner == "tier2_random_forest":
         return ["tier2_random_forest.joblib"]
-    if winner == "tier3_arima":
-        return ["tier3_arima.joblib"]
+    if winner in ("tier3_arima", "tier3_sarima"):
+        return [f"{winner}.joblib"]
     if winner.startswith("tier3_"):
         variant = winner
         return [f"{variant}.pth", f"{variant}_meta.joblib"]
@@ -855,6 +917,38 @@ def save_models(splits: dict, feature_cols: list, output_dir: Path, winner: str)
             output_dir / "tier3_arima.joblib",
         )
         print("  Saved tier3_arima.joblib")
+
+    elif winner == "tier3_sarima":
+        # SARIMA variant: seasonal order only when the pooled series spans
+        # 24+ months; otherwise identical to the plain ARIMA artifact.
+        hist = monthly[monthly["target_expenses"].notna()].copy()
+        user_mean = hist.groupby("user_id")["target_expenses"].transform("mean").replace(0, np.nan)
+        hist["norm"] = hist["target_expenses"] / user_mean
+        pooled = hist.groupby("month")["norm"].mean().sort_index().reset_index(drop=True)
+        pool_level = float(pooled.mean()) if not pooled.empty else 1.0
+        model = None
+        if HAS_STATSMODELS and len(pooled) >= ARIMA_MIN_HISTORY:
+            try:
+                if len(pooled) >= 24:
+                    from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+                    model = SARIMAX(pooled, order=ARIMA_ORDER, seasonal_order=(1, 0, 0, 12)).fit(
+                        disp=False
+                    )
+                else:
+                    model = ARIMA(pooled, order=ARIMA_ORDER).fit(method="burg")
+            except Exception:
+                model = ARIMA(pooled, order=ARIMA_ORDER).fit(method="burg")
+        joblib.dump(
+            {
+                "kind": "sarima",
+                "model": model,
+                "pool_level": pool_level,
+                "feature_cols": feature_cols,
+            },
+            output_dir / "tier3_sarima.joblib",
+        )
+        print("  Saved tier3_sarima.joblib")
 
     elif winner.startswith("tier3_") and HAS_PYTORCH:
         variant = winner.replace("tier3_", "")
