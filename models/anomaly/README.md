@@ -1,8 +1,9 @@
 # models/anomaly/
 
 Canonical home for the **new-scope** anomaly detector artifact (`metadata.json` + final
-`.joblib`). Old-scope winners (tier1_iqr, tier2_isoforest/ocsvm/autoencoder, tier3_hybrid) stay
-in `training/figures/models/anomaly/` and are reference only.
+`.joblib`). Current winner: **`tier1_iqr`** (`anomaly_detector.joblib`) — IQR baseline kept
+under the pre-registered fallback rule after adaptive-threshold + hybrid tiers were evaluated
+(see `evaluation.json` / `evaluation_report.md`).
 
 ## Decision rule (pre-registered)
 
@@ -15,11 +16,19 @@ otherwise fall back to IQR.
 
 ## Target artifact
 
-- `anomaly_detector.joblib` — committed here once trained.
-- `app/models/registry.py` (`ANOMALY_MODULE = "anomaly"`, `ANOMALY_ARTIFACT`) loads it at serve
-  time.
+- `anomaly_detector.joblib` — committed here (winner resolved from `metadata.json` at serve
+  time).
+- `app/models/registry.py` (`ANOMALY_MODULE = "anomaly"`) loads it at serve time via
+  `_resolve_anomaly`/metadata-based resolution.
 
-## Skeleton
+## Committed state
 
-- `metadata.example.json` — schema template; copy to `metadata.json` on promotion.
-- `.gitkeep` — keeps the empty family dir tracked until the trained artifact lands.
+- `metadata.json` — winner contract (`winner`, `winner_artifact`, `winner_params`, `threshold`).
+- `evaluation.json` — raw fold metrics (source of truth for the report).
+- `evaluation_report.md` — regenerated from `evaluation.json`.
+
+Regenerate reports/metadata from existing `evaluation.json` without retraining:
+
+```bash
+python training/scripts/regenerate_artifacts.py
+```

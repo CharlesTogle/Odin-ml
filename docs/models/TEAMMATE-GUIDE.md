@@ -93,13 +93,14 @@ If a parquet exists, **you do not normally need to rebuild data**; only rebuild 
 - Final artifacts live in top-level `models/<family>/` and **are committed** (with `metadata.json`).
 - Intermediate checkpoints belong in `training/models/` (gitignored).
 - Every training script emits:
-  - `evaluation.json` — fold metrics, aggregate metrics, `winner`, `winner_reason`, `winner_artifact` (pfp).
+  - `evaluation.json` — fold metrics, aggregate metrics, and the uniform **winner contract** (`winner`, `winner_artifact`, `winner_reason`, `winner_params`, `threshold`).
   - `evaluation_report.md` — human-readable report.
-  - `metadata.json` — `build_metadata` schema per `models/README.md` (model_id, family, created_at, metrics, decision_rule, framework, feature_columns, artifacts).
-  - family artifacts (`.joblib` / `.pth` / `anomaly_detector.joblib`).
+  - `metadata.json` — `build_metadata` schema per `models/README.md` (model_id, family, created_at, metrics, decision_rule, framework, feature_columns, artifacts, winner contract).
+  - family artifacts (`.joblib` / `.pth` / `anomaly_detector.joblib` / `budget_config.json`).
+- `training/scripts/regenerate_artifacts.py` re-emits reports + metadata from an existing `evaluation.json` without retraining (all four families).
 
 **Registry contract (app/models/registry.py):**
-- `load_all()` reads `evaluation.json` per module and resolves the **winner artifact by name** (`_resolve_pfp_artifact`, `_resolve_forecaster_artifact`, `ANOMALY_ARTIFACT`).
+- `load_all()` reads each family's `evaluation.json` and resolves the **winner artifact from the winner contract** (`_resolve_pfp_artifact`, `_resolve_forecaster_artifact`, `_load_anomaly`) — no hardcoded winner names.
 - pfp is **optional**: missing artifacts → `pfp=None`, PFP `STANDARD` endpoint returns 503 ("pending training"). Questionnaire mode still works.
 - `is_ready` ⇔ forecaster + anomaly loaded. `/ready` lists `loaded_modules`.
 
@@ -220,11 +221,16 @@ Also verify the metadata:eval reading is consistent:
 
 ## 11. Current status (2026-09-08)
 
-- All three families trained, verified, and committed in `models/`:
+- All **four** families evaluated, verified, and committed in `models/`, each with the uniform
+  winner contract + `evaluation.json` / `evaluation_report.md` / `metadata.json`:
   - `models/forecaster/` → winner `tier3_sarima.joblib` (kind `sarima`; degrades to ARIMA on pools < 24 months).
   - `models/anomaly/` → winner `tier1_iqr` (`anomaly_detector.joblib`); adaptive-threshold + hybrid tiers
     trained and evidenced in `evaluation.json`, kept under the pre-registered fallback rule.
   - `models/pfp/` → winner `tier3_svm.joblib` (`CalibratedClassifierCV`); NB tier + winner-resolution serving.
+  - `models/budget/` → deterministic LP (`scipy_linprog`) evaluated over 600 synthetic personas
+    (`budget_config.json`, feasibility breakdown in `evaluation.json`).
+- Reports + metadata are regenerated from `evaluation.json` only — `training/scripts/regenerate_artifacts.py`
+  (no retraining). Winner resolution at serve time is fully metadata-driven (`app/models/registry.py`).
 - 17 tests pass (full scope: PFP STANDARD → 200, metrics set includes all three modules, plus
   SARIMA-branch and adaptive-threshold unit regressions). `mypy app` shows only pre-existing debt;
   `ruff format --check` clean for all changed files (2 unrelated legacy files remain unformatted).

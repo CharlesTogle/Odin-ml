@@ -1,8 +1,8 @@
 # models/pfp/
 
 Canonical home for the **new-scope** PFP classification artifact (`metadata.json` + final
-`.joblib`). Old-scope winners (tier0/tier1/tier2/tier3) stay in `training/figures/models/pfp/`
-and are reference only.
+`.joblib`). Current winner: **`tier3_svm.joblib`** (calibrated SVM), selected after 5-fold
+temporal evaluation (see `evaluation.json` / `evaluation_report.md`).
 
 ## Decision rule (pre-registered)
 
@@ -14,10 +14,18 @@ Winner must beat the Tier-1 rule-based floor by **≥ 0.02 Macro-F1** (5-fold ex
 
 ## Target artifact
 
-- `pfp_classifier.joblib` — committed here once trained.
-- `app/models/registry.py` (`PFP_MODULE = "pfp"`, `PFP_ARTIFACT`) loads it at serve time.
+- `tier3_svm.joblib` — committed here (winner resolved from `metadata.json` at serve time).
+- `app/models/registry.py` (`PFP_MODULE = "pfp"`) loads it at serve time via
+  `_resolve_pfp_artifact`.
 
-## Skeleton
+## Committed state
 
-- `metadata.example.json` — schema template; copy to `metadata.json` on promotion.
-- `.gitkeep` — keeps the empty family dir tracked until the trained artifact lands.
+- `metadata.json` — winner contract (`winner`, `winner_artifact`, `winner_params`, threshold).
+- `evaluation.json` — raw fold metrics (source of truth for the report).
+- `evaluation_report.md` — regenerated from `evaluation.json`.
+
+Regenerate reports/metadata from existing `evaluation.json` without retraining:
+
+```bash
+python training/scripts/regenerate_artifacts.py
+```

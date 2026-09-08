@@ -1,0 +1,24 @@
+{
+  "model_id": "forecaster-tier3_sarima",
+  "family": "forecaster",
+  "created_at": "2026-09-08T00:00:00Z",
+  "training_commit": "<git sha of training code>",
+  "training_data_hash": "<sha256 of source parquet or feature matrix>",
+  "framework": "statsmodels",
+  "framework_version": "0.15.0",
+  "python_version": "3.14.4",
+  "artifacts": ["tier3_sarima.joblib"],
+  "feature_columns": ["day_of_week_sin", "day_of_week_cos", "lag_1d", "lag_7d", "monetary_30d", "..."],
+  "metrics": {
+    "primary": {"name": "mape", "value": 9.4, "reduction_vs_naive_pct": 0.749, "folds": 5},
+    "secondary": {"mae_mean": 3162.68, "smape_mean": 9.38, "mda_mean": 0.71, "rmse_mean": 5257.27, "r2_mean": 0.80}
+  },
+  "decision_rule": "best learned model must cut MAPE by >= 20% vs naive baseline, else naive",
+  "winner": "tier3_sarima",
+  "winner_artifact": "tier3_sarima.joblib",
+  "winner_reason": "tier3_sarima reduces MAPE by 74.9% (>20% threshold)",
+  "winner_params": null,
+  "threshold": null,
+  "fitted": true,
+  "serving_note": "loaded by app/models/loader.py"
+}

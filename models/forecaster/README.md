@@ -1,8 +1,9 @@
 # models/forecaster/
 
 Canonical home for the **new-scope** spending forecaster artifact (`metadata.json` + final
-`.joblib` / `.pth` + scaler). Old-scope winners (tier2_rf, tier3_gru/lstm/bilstm) stay in
-`training/figures/models/forecaster/` and are reference only.
+`.joblib`). Current winner: **`tier3_sarima.joblib`** (SARIMA, degrades to plain ARIMA on
+pools < 24 months), cutting MAPE ~75% vs naive in 5-fold temporal evaluation (see
+`evaluation.json` / `evaluation_report.md`).
 
 ## Decision rule (pre-registered)
 
@@ -14,11 +15,18 @@ Winner must beat the naive baseline by **≥ 20% MAPE reduction**.
 
 ## Target artifact
 
-- `forecaster.joblib` (or `captain.pth` + `_meta.joblib` for a PyTorch winner) — committed here
-  once trained.
-- `app/models/registry.py` (`FORECASTER_MODULE = "forecaster"`) loads it at serve time.
+- `tier3_sarima.joblib` — committed here (winner resolved from `metadata.json` at serve time).
+- `app/models/registry.py` (`FORECASTER_MODULE = "forecaster"`) loads it at serve time via
+  `_resolve_forecaster_artifact` (`.pth` + `_meta.joblib` pairs rebuild `_SequenceForecaster`).
 
-## Skeleton
+## Committed state
 
-- `metadata.example.json` — schema template; copy to `metadata.json` on promotion.
-- `.gitkeep` — keeps the empty family dir tracked until the trained artifact lands.
+- `metadata.json` — winner contract (`winner`, `winner_artifact`, `winner_params`, `threshold`).
+- `evaluation.json` — raw fold metrics (source of truth for the report).
+- `evaluation_report.md` — regenerated from `evaluation.json`.
+
+Regenerate reports/metadata from existing `evaluation.json` without retraining:
+
+```bash
+python training/scripts/regenerate_artifacts.py
+```
