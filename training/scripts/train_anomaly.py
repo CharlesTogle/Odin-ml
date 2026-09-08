@@ -1,14 +1,16 @@
 """
 Anomaly Detector Training Pipeline
 
-Trains and compares multiple anomaly detection tiers for transaction-level
+Trains and compares the lightest-tier anomaly detectors for transaction-level
 anomaly detection on synthetic financial data.
 
-Tiers:
+Scope (top-3-lightest, per docs/models/model-candidate-report.md §6):
   Tier 0: Majority-class baseline (sanity floor)
-  Tier 1: IQR (statistical, per-feature)
-  Tier 2: Isolation Forest, One-Class SVM, Autoencoder (PyTorch)
-  Tier 3: Hybrid Ensemble (voting from Tier 1-2 detectors)
+  Tier 1: IQR (statistical, per-feature) — decision-rule baseline
+  Tier 2: Isolation Forest, One-Class SVM (kernel), Autoencoder (PyTorch)
+
+Heavier candidates (adaptive threshold, hybrid ensemble) are documented as
+"hold" in the roster and are not trained in the default scope.
 
 Evaluation:
   - 5-fold expanding window (temporal_folds.json)
@@ -19,11 +21,13 @@ Evaluation:
     and reach F1 >= 0.85; otherwise fall back to the IQR baseline
 
 Usage:
-    python scripts/train_anomaly.py --input datasets/anomaly/ --output models/anomaly/
+    python training/scripts/train_anomaly.py --input training/datasets/anomaly/ --output models/anomaly/
 """
 
 import argparse
 import json
+import os
+import sys
 import time
 import warnings
 from datetime import datetime
@@ -40,8 +44,12 @@ from sklearn.metrics import (
 )
 from sklearn.svm import OneClassSVM
 
-import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.ml.metadata import build_metadata, framework_version_of, write_metadata
+from app.ml.models import IQRDetector, _Autoencoder
 
 HAS_PYTORCH = False
 torch = None
@@ -49,15 +57,18 @@ try:
     import torch
     import torch.nn as nn
     from torch.utils.data import DataLoader, TensorDataset
+
     HAS_PYTORCH = True
 except ImportError:
     warnings.warn("torch unavailable — Tier 2 Autoencoder will be skipped")
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import seaborn as sns
+
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -68,20 +79,44 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 FEATURE_COLS = [
-    "mean_income_rolling", "std_income_rolling",
-    "mean_expenses_rolling", "std_expenses_rolling",
-    "category_dist", "txn_frequency_rolling", "avg_txn_size_rolling",
-    "category_entropy", "volatility_index", "spending_concentration",
-    "amount_deviation", "category_deviation", "frequency_deviation",
-    "income_deviation", "expense_deviation", "is_novel_category",
-    "amount_vs_category_mean", "amount_vs_category_std",
-    "category_frequency_change", "amount_percentile_in_category",
-    "days_since_last_txn", "is_weekend", "amount_zscore_overall", "amount_zscore_category",
+    "mean_income_rolling",
+    "std_income_rolling",
+    "mean_expenses_rolling",
+    "std_expenses_rolling",
+    "category_dist",
+    "txn_frequency_rolling",
+    "avg_txn_size_rolling",
+    "category_entropy",
+    "volatility_index",
+    "spending_concentration",
+    "amount_deviation",
+    "category_deviation",
+    "frequency_deviation",
+    "income_deviation",
+    "expense_deviation",
+    "is_novel_category",
+    "amount_vs_category_mean",
+    "amount_vs_category_std",
+    "category_frequency_change",
+    "amount_percentile_in_category",
+    "days_since_last_txn",
+    "is_weekend",
+    "amount_zscore_overall",
+    "amount_zscore_category",
 ]
 
 LABEL_COL = "is_anomalous"
-META_COLS = ["user_id", "transaction_id", "month", "date", "category",
-             "amount", "transaction_type", "is_anomalous", "anomaly_type"]
+META_COLS = [
+    "user_id",
+    "transaction_id",
+    "month",
+    "date",
+    "category",
+    "amount",
+    "transaction_type",
+    "is_anomalous",
+    "anomaly_type",
+]
 
 RANDOM_SEED = 42
 
@@ -89,6 +124,7 @@ RANDOM_SEED = 42
 # ---------------------------------------------------------------------------
 # Data Loading
 # ---------------------------------------------------------------------------
+
 
 def load_data(data_dir: str):
     """Load parquet splits and feature metadata."""
@@ -131,6 +167,7 @@ def extract_features(df: pd.DataFrame):
 # ---------------------------------------------------------------------------
 # Evaluation Helpers
 # ---------------------------------------------------------------------------
+
 
 def compute_metrics(y_true: np.ndarray, y_scores: np.ndarray, threshold: float = 0.5):
     """Compute anomaly detection metrics.
@@ -182,7 +219,10 @@ def compute_metrics(y_true: np.ndarray, y_scores: np.ndarray, threshold: float =
         "best_precision": round(best_precision, 4),
         "best_recall": round(best_recall, 4),
         "best_accuracy": round(best_accuracy, 4),
-        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
         "n_positives": int(np.sum(y_true)),
         "n_predictions_positive": int(np.sum(y_pred)),
     }
@@ -195,39 +235,17 @@ def compute_baseline_metrics(y_true: np.ndarray):
 
 
 # ---------------------------------------------------------------------------
-# Tier 1: IQR Detector
+# Tier 1: IQR Detector (canonical class lives in app.ml.models)
 # ---------------------------------------------------------------------------
-
-class IQRDetector:
-    """Statistical anomaly detector using IQR on each feature."""
-
-    def __init__(self, iqr_multiplier: float = 1.5):
-        self.iqr_multiplier = iqr_multiplier
-        self.bounds = {}
-
-    def fit(self, X: np.ndarray):
-        for j in range(X.shape[1]):
-            col = X[:, j]
-            q1, q3 = np.percentile(col, [25, 75])
-            iqr = q3 - q1
-            self.bounds[j] = (q1 - self.iqr_multiplier * iqr, q3 + self.iqr_multiplier * iqr)
-
-    def score(self, X: np.ndarray) -> np.ndarray:
-        anomaly_flags = np.zeros(X.shape[0], dtype=float)
-        for j in range(X.shape[1]):
-            lo, hi = self.bounds[j]
-            outlier_mask = (X[:, j] < lo) | (X[:, j] > hi)
-            anomaly_flags += outlier_mask.astype(float)
-        # Normalize to [0, 1] by proportion of features that are outliers
-        return anomaly_flags / X.shape[1]
-
 
 # ---------------------------------------------------------------------------
 # Tier 2: Isolation Forest
 # ---------------------------------------------------------------------------
 
-def train_isolation_forest(X_train: np.ndarray, y_train: np.ndarray,
-                           X_val: np.ndarray, y_val: np.ndarray):
+
+def train_isolation_forest(
+    X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray
+):
     """Train Isolation Forest with contamination set from train label rate."""
     contamination = float(np.clip(np.mean(y_train), 0.001, 0.5))
     model = IsolationForest(
@@ -249,8 +267,8 @@ def train_isolation_forest(X_train: np.ndarray, y_train: np.ndarray,
 # Tier 2: One-Class SVM
 # ---------------------------------------------------------------------------
 
-def train_ocsvm(X_train: np.ndarray, y_train: np.ndarray,
-                X_val: np.ndarray, y_val: np.ndarray):
+
+def train_ocsvm(X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray):
     """Train One-Class SVM with subsampling for speed."""
     max_samples = min(3000, X_train.shape[0])
     rng = np.random.RandomState(RANDOM_SEED)
@@ -266,7 +284,9 @@ def train_ocsvm(X_train: np.ndarray, y_train: np.ndarray,
             model = OneClassSVM(kernel="rbf", gamma="scale", nu=nu)
             model.fit(X_sub)
             val_scores = -model.decision_function(X_val)
-            val_scores = (val_scores - val_scores.min()) / (val_scores.max() - val_scores.min() + 1e-8)
+            val_scores = (val_scores - val_scores.min()) / (
+                val_scores.max() - val_scores.min() + 1e-8
+            )
             metrics = compute_metrics(y_val, val_scores)
             if metrics["best_f1"] > best_score:
                 best_score = metrics["best_f1"]
@@ -279,28 +299,8 @@ def train_ocsvm(X_train: np.ndarray, y_train: np.ndarray,
 
 
 # ---------------------------------------------------------------------------
-# Tier 2: Autoencoder (PyTorch)
+# Tier 2: Autoencoder (PyTorch) — canonical model class lives in app.ml.models
 # ---------------------------------------------------------------------------
-
-class _Autoencoder(nn.Module):
-    """PyTorch autoencoder for anomaly detection."""
-
-    def __init__(self, input_dim: int, encoding_dim: int = 7):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, encoding_dim),
-            nn.ReLU(),
-            nn.Linear(encoding_dim, encoding_dim // 2),
-            nn.ReLU(),
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(encoding_dim // 2, encoding_dim),
-            nn.ReLU(),
-            nn.Linear(encoding_dim, input_dim),
-        )
-
-    def forward(self, x):
-        return self.decoder(self.encoder(x))
 
 
 def build_autoencoder(input_dim: int, encoding_dim: int = 7):
@@ -310,8 +310,9 @@ def build_autoencoder(input_dim: int, encoding_dim: int = 7):
     return _Autoencoder(input_dim, encoding_dim)
 
 
-def train_autoencoder(X_train: np.ndarray, y_train: np.ndarray,
-                      X_val: np.ndarray, y_val: np.ndarray):
+def train_autoencoder(
+    X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray
+):
     """Train autoencoder; anomalies have higher reconstruction error."""
     if not HAS_PYTORCH:
         return None, None, -1
@@ -326,8 +327,8 @@ def train_autoencoder(X_train: np.ndarray, y_train: np.ndarray,
 
     X_t = torch.tensor(X_train, dtype=torch.float32)
     n_val = max(1, int(len(X_t) * 0.1))
-    X_tr = X_t[:len(X_t) - n_val]
-    X_v = X_t[len(X_t) - n_val:]
+    X_tr = X_t[: len(X_t) - n_val]
+    X_v = X_t[len(X_t) - n_val :]
 
     train_ds = TensorDataset(X_tr, X_tr)
     train_dl = DataLoader(train_ds, batch_size=128, shuffle=True)
@@ -381,40 +382,9 @@ def train_autoencoder(X_train: np.ndarray, y_train: np.ndarray,
 
 
 # ---------------------------------------------------------------------------
-# Tier 3: Hybrid Ensemble
-# ---------------------------------------------------------------------------
-
-class HybridEnsemble:
-    """Ensemble of Tier 1-2 detectors using score averaging."""
-
-    def __init__(self, detectors: list, weights: list = None):
-        self.detectors = detectors
-        self.weights = weights or [1.0 / len(detectors)] * len(detectors)
-
-    def score(self, X: np.ndarray) -> np.ndarray:
-        scores = np.zeros(X.shape[0], dtype=float)
-        for detector, weight in zip(self.detectors, self.weights):
-            if hasattr(detector, "score"):
-                s = detector.score(X)
-            elif hasattr(detector, "decision_function"):
-                s = -detector.decision_function(X)
-                s = (s - s.min()) / (s.max() - s.min() + 1e-8)
-            elif isinstance(detector, nn.Module):
-                detector.eval()
-                with torch.no_grad():
-                    X_t = torch.tensor(X, dtype=torch.float32)
-                    recon = detector(X_t).numpy()
-                s = np.mean((X - recon) ** 2, axis=1)
-                s = (s - s.min()) / (s.max() - s.min() + 1e-8)
-            else:
-                continue
-            scores += weight * s
-        return scores
-
-
-# ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
+
 
 def plot_confusion_matrices(results: dict, output_dir: Path):
     """Plot confusion matrix heatmaps for all models."""
@@ -428,9 +398,15 @@ def plot_confusion_matrices(results: dict, output_dir: Path):
 
     for ax, (name, res) in zip(axes, results.items()):
         cm = np.array([[res["tn"], res["fp"]], [res["fn"], res["tp"]]])
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax,
-                    xticklabels=["Normal", "Anomaly"],
-                    yticklabels=["Normal", "Anomaly"])
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt="d",
+            cmap="Blues",
+            ax=ax,
+            xticklabels=["Normal", "Anomaly"],
+            yticklabels=["Normal", "Anomaly"],
+        )
         ax.set_title(f"{name}\nPR-AUC={res['pr_auc']:.3f}", fontsize=10)
         ax.set_ylabel("True")
         ax.set_xlabel("Predicted")
@@ -465,11 +441,12 @@ def plot_pr_curves(y_true: np.ndarray, score_dict: dict, output_dir: Path):
 # Main Training Loop
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", default="datasets/anomaly/")
+    parser.add_argument("--input", default="training/datasets/anomaly/")
     parser.add_argument("--output", default="models/anomaly/")
-    parser.add_argument("--folds", default="datasets/processed/temporal_folds.json")
+    parser.add_argument("--folds", default="training/datasets/processed/temporal_folds.json")
     args = parser.parse_args()
 
     t0 = time.time()
@@ -489,22 +466,25 @@ def main():
 
     for fold_info in folds:
         fold_num = fold_info["fold"]
-        print(f"\n  Fold {fold_num}: train months {fold_info['train_months']}, "
-              f"test months {fold_info['test_months']}")
+        print(
+            f"\n  Fold {fold_num}: train months {fold_info['train_months']}, "
+            f"test months {fold_info['test_months']}"
+        )
 
         fold_train, fold_test = prepare_fold_data(train_df, fold_info)
         X_train, y_train = extract_features(fold_train)
         X_test, y_test = extract_features(fold_test)
 
-        print(f"    Train: {len(X_train)} ({int(y_train.sum())} anomalies), "
-              f"Test: {len(X_test)} ({int(y_test.sum())} anomalies)")
+        print(
+            f"    Train: {len(X_train)} ({int(y_train.sum())} anomalies), "
+            f"Test: {len(X_test)} ({int(y_test.sum())} anomalies)"
+        )
 
         fold_scores = {}
 
         # Tier 0: Baseline
         baseline = compute_baseline_metrics(y_test)
-        print(f"    Tier 0 (Baseline): F1={baseline['f1']:.4f}, "
-              f"Acc={baseline['accuracy']:.4f}")
+        print(f"    Tier 0 (Baseline): F1={baseline['f1']:.4f}, Acc={baseline['accuracy']:.4f}")
         fold_scores["tier0_baseline"] = np.zeros_like(y_test, dtype=float)
 
         # Tier 1: IQR
@@ -512,34 +492,38 @@ def main():
         iqr.fit(X_train)
         iqr_scores = iqr.score(X_test)
         iqr_metrics = compute_metrics(y_test, iqr_scores)
-        print(f"    Tier 1 (IQR): F1={iqr_metrics['best_f1']:.4f}, "
-              f"Acc={iqr_metrics['best_accuracy']:.4f}, "
-              f"PR-AUC={iqr_metrics['pr_auc']:.4f}")
+        print(
+            f"    Tier 1 (IQR): F1={iqr_metrics['best_f1']:.4f}, "
+            f"Acc={iqr_metrics['best_accuracy']:.4f}, "
+            f"PR-AUC={iqr_metrics['pr_auc']:.4f}"
+        )
         fold_scores["tier1_iqr"] = iqr_scores
 
         # Tier 2: Isolation Forest
-        if_model, if_params, if_val_score = train_isolation_forest(
-            X_train, y_train, X_test, y_test
-        )
+        if_model, if_params, if_val_score = train_isolation_forest(X_train, y_train, X_test, y_test)
         if_scores = -if_model.decision_function(X_test)
         if_scores = (if_scores - if_scores.min()) / (if_scores.max() - if_scores.min() + 1e-8)
         if_metrics = compute_metrics(y_test, if_scores)
-        print(f"    Tier 2 (IF): F1={if_metrics['best_f1']:.4f}, "
-              f"Acc={if_metrics['best_accuracy']:.4f}, "
-              f"PR-AUC={if_metrics['pr_auc']:.4f}, params={if_params}")
+        print(
+            f"    Tier 2 (IF): F1={if_metrics['best_f1']:.4f}, "
+            f"Acc={if_metrics['best_accuracy']:.4f}, "
+            f"PR-AUC={if_metrics['pr_auc']:.4f}, params={if_params}"
+        )
         fold_scores["tier2_isolation_forest"] = if_scores
 
         # Tier 2: One-Class SVM
-        ocsvm_model, ocsvm_params, ocsvm_val_score = train_ocsvm(
-            X_train, y_train, X_test, y_test
-        )
+        ocsvm_model, ocsvm_params, ocsvm_val_score = train_ocsvm(X_train, y_train, X_test, y_test)
         if ocsvm_model is not None:
             ocsvm_scores = -ocsvm_model.decision_function(X_test)
-            ocsvm_scores = (ocsvm_scores - ocsvm_scores.min()) / (ocsvm_scores.max() - ocsvm_scores.min() + 1e-8)
+            ocsvm_scores = (ocsvm_scores - ocsvm_scores.min()) / (
+                ocsvm_scores.max() - ocsvm_scores.min() + 1e-8
+            )
             ocsvm_metrics = compute_metrics(y_test, ocsvm_scores)
-            print(f"    Tier 2 (OCSVM): F1={ocsvm_metrics['best_f1']:.4f}, "
-                  f"Acc={ocsvm_metrics['best_accuracy']:.4f}, "
-                  f"PR-AUC={ocsvm_metrics['pr_auc']:.4f}, params={ocsvm_params}")
+            print(
+                f"    Tier 2 (OCSVM): F1={ocsvm_metrics['best_f1']:.4f}, "
+                f"Acc={ocsvm_metrics['best_accuracy']:.4f}, "
+                f"PR-AUC={ocsvm_metrics['pr_auc']:.4f}, params={ocsvm_params}"
+            )
             fold_scores["tier2_ocsvm"] = ocsvm_scores
         else:
             print("    Tier 2 (OCSVM): FAILED")
@@ -547,19 +531,21 @@ def main():
 
         # Tier 2: Autoencoder
         if HAS_PYTORCH:
-            ae_model, ae_loss, ae_val_score = train_autoencoder(
-                X_train, y_train, X_test, y_test
-            )
+            ae_model, ae_loss, ae_val_score = train_autoencoder(X_train, y_train, X_test, y_test)
             if ae_model is not None:
                 ae_model.eval()
                 with torch.no_grad():
                     ae_recon = ae_model(torch.tensor(X_test, dtype=torch.float32)).numpy()
                 ae_scores = np.mean((X_test - ae_recon) ** 2, axis=1)
-                ae_scores = (ae_scores - ae_scores.min()) / (ae_scores.max() - ae_scores.min() + 1e-8)
+                ae_scores = (ae_scores - ae_scores.min()) / (
+                    ae_scores.max() - ae_scores.min() + 1e-8
+                )
                 ae_metrics = compute_metrics(y_test, ae_scores)
-                print(f"    Tier 2 (AE): F1={ae_metrics['best_f1']:.4f}, "
-                      f"Acc={ae_metrics['best_accuracy']:.4f}, "
-                      f"PR-AUC={ae_metrics['pr_auc']:.4f}")
+                print(
+                    f"    Tier 2 (AE): F1={ae_metrics['best_f1']:.4f}, "
+                    f"Acc={ae_metrics['best_accuracy']:.4f}, "
+                    f"PR-AUC={ae_metrics['pr_auc']:.4f}"
+                )
                 fold_scores["tier2_autoencoder"] = ae_scores
             else:
                 print("    Tier 2 (AE): FAILED")
@@ -567,42 +553,26 @@ def main():
         else:
             ae_metrics = {"pr_auc": 0, "best_f1": 0, "best_accuracy": 0}
 
-        # Tier 3: Hybrid Ensemble
-        ensemble_detectors = [("iqr", iqr), ("if", if_model)]
-        if ocsvm_model is not None:
-            ensemble_detectors.append(("ocsvm", ocsvm_model))
-
-        ensemble = HybridEnsemble(
-            detectors=[d for _, d in ensemble_detectors],
-            weights=[1.0 / len(ensemble_detectors)] * len(ensemble_detectors)
-        )
-        ensemble_scores = ensemble.score(X_test)
-        ensemble_metrics = compute_metrics(y_test, ensemble_scores)
-        print(f"    Tier 3 (Ensemble): F1={ensemble_metrics['best_f1']:.4f}, "
-              f"Acc={ensemble_metrics['best_accuracy']:.4f}, "
-              f"PR-AUC={ensemble_metrics['pr_auc']:.4f}")
-        fold_scores["tier3_ensemble"] = ensemble_scores
-
-        # Store fold results
+        # Store fold results (hybrid ensemble is "hold" — not in default scope)
         all_fold_results[fold_num] = {
             "baseline": baseline,
             "tier1_iqr": iqr_metrics,
             "tier2_isolation_forest": if_metrics,
             "tier2_ocsvm": ocsvm_metrics,
             "tier2_autoencoder": ae_metrics,
-            "tier3_ensemble": ensemble_metrics,
             "models": {
                 "iqr_bounds": iqr.bounds,
                 "if_params": if_params,
                 "ocsvm_params": ocsvm_params,
-            }
+            },
         }
         all_fold_scores[fold_num] = fold_scores
 
     # Aggregate across folds
     print(f"\n[3/6] Aggregating results across {len(folds)} folds...")
-    model_names = [k for k in all_fold_results[folds[0]["fold"]].keys()
-                   if k not in ("baseline", "models")]
+    model_names = [
+        k for k in all_fold_results[folds[0]["fold"]].keys() if k not in ("baseline", "models")
+    ]
 
     def _fold_stats(key, stat):
         return [all_fold_results[f["fold"]][key][stat] for f in folds]
@@ -637,7 +607,7 @@ def main():
     # Print summary table (F1 is primary per MDD v2.3)
     print("\n  Model Summary (mean ± std across folds):")
     print(f"  {'Model':<28} {'F1':>12} {'Acc':>12} {'PR-AUC':>12}")
-    print(f"  {'-'*66}")
+    print(f"  {'-' * 66}")
     for name, stats in sorted(summary.items(), key=lambda x: -x[1].get("f1_mean", 0)):
         f1_str = f"{stats['f1_mean']:.4f} ± {stats['f1_std']:.4f}"
         acc_str = f"{stats['accuracy_mean']:.4f}"
@@ -647,21 +617,23 @@ def main():
     # Select winner by primary metric (F1), then enforce pre-registered rule:
     # winner must beat IQR baseline by >=50% F1 improvement AND reach F1 >= 0.85
     best_model_name = max(
-        [k for k in summary if k != "baseline"],
-        key=lambda k: summary[k]["f1_mean"]
+        [k for k in summary if k != "baseline"], key=lambda k: summary[k]["f1_mean"]
     )
     best_stats = summary[best_model_name]
     iqr_stats = summary["tier1_iqr"]
-    f1_improvement = ((best_stats["f1_mean"] - iqr_stats["f1_mean"])
-                      / max(iqr_stats["f1_mean"], 1e-8))
+    f1_improvement = (best_stats["f1_mean"] - iqr_stats["f1_mean"]) / max(
+        iqr_stats["f1_mean"], 1e-8
+    )
     target_met = best_stats["f1_mean"] >= 0.85
     rule_passed = (f1_improvement >= 0.50) and target_met
 
     if not rule_passed:
-        print(f"\n  Decision rule NOT satisfied for {best_model_name}: "
-              f"F1 improvement {f1_improvement*100:.1f}% (need >=50%), "
-              f"F1 {best_stats['f1_mean']:.4f} (need >=0.85). "
-              f"Falling back to interpretable IQR baseline.")
+        print(
+            f"\n  Decision rule NOT satisfied for {best_model_name}: "
+            f"F1 improvement {f1_improvement * 100:.1f}% (need >=50%), "
+            f"F1 {best_stats['f1_mean']:.4f} (need >=0.85). "
+            f"Falling back to interpretable IQR baseline."
+        )
         best_model_name = "tier1_iqr"
         best_stats = summary["tier1_iqr"]
         f1_improvement = 1.0
@@ -685,9 +657,12 @@ def main():
         winner_params = {"iqr_multiplier": 1.5}
     elif best_model_name == "tier2_isolation_forest":
         winner = IsolationForest(
-            random_state=RANDOM_SEED, n_jobs=-1,
-            n_estimators=200, max_samples="auto",
-            contamination=contamination, max_features=0.8
+            random_state=RANDOM_SEED,
+            n_jobs=-1,
+            n_estimators=200,
+            max_samples="auto",
+            contamination=contamination,
+            max_features=0.8,
         )
         winner.fit(X_full_train)
         score_fn = lambda X: -winner.decision_function(X)
@@ -704,7 +679,7 @@ def main():
         winner = winner.to(device)
         X_t = torch.tensor(X_full_train, dtype=torch.float32)
         n_val = max(1, int(len(X_t) * 0.1))
-        X_tr, X_v = X_t[:len(X_t)-n_val], X_t[len(X_t)-n_val:]
+        X_tr, X_v = X_t[: len(X_t) - n_val], X_t[len(X_t) - n_val :]
         train_ds = TensorDataset(X_tr, X_tr)
         train_dl = DataLoader(train_ds, batch_size=64, shuffle=True)
         optimizer = torch.optim.Adam(winner.parameters(), lr=0.001)
@@ -725,22 +700,6 @@ def main():
 
         score_fn = ae_score
         winner_params = {"loss": "mse", "epochs": 50}
-    elif best_model_name == "tier3_ensemble":
-        # Build ensemble from full data
-        iqr_w = IQRDetector(iqr_multiplier=1.5)
-        iqr_w.fit(X_full_train)
-
-        if_w = IsolationForest(random_state=RANDOM_SEED, n_jobs=-1,
-                               n_estimators=200, contamination=contamination)
-        if_w.fit(X_full_train)
-
-        ensemble_w = HybridEnsemble(
-            detectors=[iqr_w, if_w],
-            weights=[0.5, 0.5]
-        )
-        score_fn = lambda X: ensemble_w.score(X)
-        winner = ensemble_w
-        winner_params = {"detectors": ["iqr", "isolation_forest"], "weights": [0.5, 0.5]}
     else:
         winner = None
         score_fn = lambda X: np.zeros(X.shape[0], dtype=float)
@@ -757,8 +716,10 @@ def main():
     val_metrics = compute_metrics(y_val_final, val_scores, threshold=threshold)
     final_metrics = compute_metrics(y_test_final, test_scores, threshold=threshold)
     print(f"  Val-selected threshold: {threshold:.4f}")
-    print(f"  Val F1 @ threshold: {val_metrics['f1']:.4f} "
-          f"(P={val_metrics['precision']:.4f}, R={val_metrics['recall']:.4f})")
+    print(
+        f"  Val F1 @ threshold: {val_metrics['f1']:.4f} "
+        f"(P={val_metrics['precision']:.4f}, R={val_metrics['recall']:.4f})"
+    )
     print(f"  Test F1: {final_metrics['f1']:.4f}")
     print(f"  Test Precision: {final_metrics['precision']:.4f}")
     print(f"  Test Recall: {final_metrics['recall']:.4f}")
@@ -766,8 +727,8 @@ def main():
     print(f"  Test PR-AUC (supplementary): {final_metrics['pr_auc']:.4f}")
 
     # Save model
-    print(f"\n[5/6] Saving model and artifacts...")
-    model_path = output_dir / f"anomaly_detector.joblib"
+    print("\n[5/6] Saving model and artifacts...")
+    model_path = output_dir / "anomaly_detector.joblib"
     if winner is not None:
         joblib.dump(winner, model_path)
         print(f"  Saved: {model_path}")
@@ -806,19 +767,69 @@ def main():
     # Use last fold for plots
     last_fold_num = folds[-1]["fold"]
     plot_confusion_matrices(
-        {k: all_fold_results[last_fold_num][k]
-         for k in ["baseline", "tier1_iqr", "tier2_isolation_forest", best_model_name]
-         if k in all_fold_results[last_fold_num]},
-        output_dir
+        {
+            k: all_fold_results[last_fold_num][k]
+            for k in ["baseline", "tier1_iqr", "tier2_isolation_forest", best_model_name]
+            if k in all_fold_results[last_fold_num]
+        },
+        output_dir,
     )
     plot_pr_curves(y_test_final, {"winner": test_scores}, output_dir)
 
     # Save markdown report
     _write_report(report, output_dir)
 
+    # Emit metadata.json (Phase 8 provenance: hash, commit, metrics, rule)
+    selected_stats = summary[best_model_name]
+    metadata = build_metadata(
+        model_id=f"anomaly-{best_model_name}",
+        family="anomaly",
+        feature_columns=FEATURE_COLS,
+        metrics={
+            "primary": {
+                "name": "f1",
+                "value": final_metrics["f1"],
+                "threshold": threshold,
+                "folds": len(folds),
+            },
+            "secondary": {
+                "accuracy": final_metrics["accuracy"],
+                "precision": final_metrics["precision"],
+                "recall": final_metrics["recall"],
+                "pr_auc": final_metrics["pr_auc"],
+                "roc_auc": final_metrics["roc_auc"],
+                "fold_f1_mean": selected_stats.get("f1_mean"),
+                "fold_f1_std": selected_stats.get("f1_std"),
+            },
+        },
+        decision_rule=(
+            "winner must beat the IQR baseline by >=50% F1 improvement and "
+            "reach F1 >= 0.85; otherwise fall back to IQR"
+        ),
+        framework="scikit-learn",
+        framework_version=framework_version_of("scikit-learn"),
+        artifacts=["anomaly_detector.joblib"],
+        data_sources=[
+            Path(args.input) / name for name in ("train.parquet", "val.parquet", "test.parquet")
+        ],
+        winner_reason=(
+            f"selected {best_model_name} under the pre-registered rule; "
+            f"F1 improvement over IQR = {f1_improvement * 100:.1f}% "
+            f"(rule_passed={rule_passed})"
+        ),
+        extra={
+            "winner": best_model_name,
+            "winner_params": winner_params,
+            "val_selected_threshold": threshold,
+        },
+    )
+    write_metadata(metadata, output_dir)
+
     elapsed = time.time() - t0
-    print(f"\n[6/6] Done. Winner: {best_model_name}, "
-          f"Test F1: {final_metrics['f1']:.4f}, {elapsed:.1f}s")
+    print(
+        f"\n[6/6] Done. Winner: {best_model_name}, "
+        f"Test F1: {final_metrics['f1']:.4f}, {elapsed:.1f}s"
+    )
 
 
 def _write_report(report: dict, output_dir: Path):
@@ -827,12 +838,12 @@ def _write_report(report: dict, output_dir: Path):
         "# Anomaly Detector Training Report",
         "",
         f"**Timestamp:** {report['timestamp']}",
-        f"**Task:** Transaction-level anomaly detection (unsupervised)",
+        "**Task:** Transaction-level anomaly detection (unsupervised)",
         f"**Features:** {report['n_features']}",
         f"**Train/Val/Test:** {report['n_train']}/{report['n_val']}/{report['n_test']}",
-        f"**Anomaly rate (train):** {report['anomaly_rate_train']*100:.2f}%",
-        f"**Anomaly rate (val):** {report['anomaly_rate_val']*100:.2f}%",
-        f"**Anomaly rate (test):** {report['anomaly_rate_test']*100:.2f}%",
+        f"**Anomaly rate (train):** {report['anomaly_rate_train'] * 100:.2f}%",
+        f"**Anomaly rate (val):** {report['anomaly_rate_val'] * 100:.2f}%",
+        f"**Anomaly rate (test):** {report['anomaly_rate_test'] * 100:.2f}%",
         "",
         "## Fold Summary",
         "",
@@ -843,8 +854,10 @@ def _write_report(report: dict, output_dir: Path):
     summary = report["fold_summary"]
     for name, stats in sorted(summary.items(), key=lambda x: -x[1].get("f1_mean", 0)):
         if name == "baseline":
-            lines.append(f"| {name} | {stats['f1_mean']:.4f} ± {stats['f1_std']:.4f} "
-                         f"| {stats['accuracy_mean']:.4f} | N/A |")
+            lines.append(
+                f"| {name} | {stats['f1_mean']:.4f} ± {stats['f1_std']:.4f} "
+                f"| {stats['accuracy_mean']:.4f} | N/A |"
+            )
         else:
             lines.append(
                 f"| {name} | {stats['f1_mean']:.4f} ± {stats['f1_std']:.4f} "
@@ -853,54 +866,56 @@ def _write_report(report: dict, output_dir: Path):
             )
 
     drule = report.get("decision_rule", {})
-    lines.extend([
-        "",
-        f"## Winner: {report['winner']}",
-        "",
-        f"**Decision rule:** F1 improvement over IQR baseline: "
-        f"{drule.get('f1_improvement_over_iqr_pct', 0):.1f}% "
-        f"(target >= 50%), F1 target >= 0.85, passed: {drule.get('rule_passed')}",
-        "",
-        "## Final Test Metrics (threshold selected on held-out val)",
-        "",
-        f"- **Operating threshold:** {report['val_selected_threshold']:.4f}",
-        f"- **Accuracy:** {report['final_test_metrics']['accuracy']:.4f}",
-        f"- **Precision:** {report['final_test_metrics']['precision']:.4f}",
-        f"- **Recall:** {report['final_test_metrics']['recall']:.4f}",
-        f"- **F1:** {report['final_test_metrics']['f1']:.4f}",
-        f"- **PR-AUC (supplementary):** {report['final_test_metrics']['pr_auc']:.4f}",
-        f"- **ROC-AUC (supplementary):** {report['final_test_metrics']['roc_auc']:.4f}",
-        f"- **TP/FP/FN/TN:** {report['final_test_metrics']['tp']}/{report['final_test_metrics']['fp']}"
-        f"/{report['final_test_metrics']['fn']}/{report['final_test_metrics']['tn']}",
-        "",
-        "## Analysis",
-        "",
-        "### Key Findings",
-        "",
-        f"- **Class imbalance:** ~{report['anomaly_rate_train']*100:.1f}% anomaly rate",
-        "- **Primary metrics are Accuracy/Precision/Recall/F1** (MDD v2.3); "
-        "PR-AUC/ROC retained as supplementary",
-        "- **IQR provides interpretable statistical baseline** with per-feature thresholds",
-        "- **Isolation Forest handles unsupervised detection**; contamination set to the "
-        "observed training anomaly rate",
-        "- **Operating threshold is selected on the held-out val split** to avoid test leakage",
-        "",
-        "### Anomaly Types",
-        "",
-        "Synthetic data injects 4 anomaly types (`anomaly_type` column):",
-        "",
-        "1. **amount_spike** — unusually high transaction amount",
-        "2. **new_merchant** — first transaction with a new merchant",
-        "3. **frequency_change** — abnormal transaction frequency",
-        "4. **category_mismatch** — transaction category inconsistent with expectation",
-        "",
-        "### Recommendations",
-        "",
-        "1. Deploy the winning model for real-time scoring",
-        "2. Set anomaly threshold based on business tolerance (precision vs recall)",
-        "3. Monitor model performance on incoming data for drift",
-        "4. Consider ensemble approach for production robustness",
-    ])
+    lines.extend(
+        [
+            "",
+            f"## Winner: {report['winner']}",
+            "",
+            f"**Decision rule:** F1 improvement over IQR baseline: "
+            f"{drule.get('f1_improvement_over_iqr_pct', 0):.1f}% "
+            f"(target >= 50%), F1 target >= 0.85, passed: {drule.get('rule_passed')}",
+            "",
+            "## Final Test Metrics (threshold selected on held-out val)",
+            "",
+            f"- **Operating threshold:** {report['val_selected_threshold']:.4f}",
+            f"- **Accuracy:** {report['final_test_metrics']['accuracy']:.4f}",
+            f"- **Precision:** {report['final_test_metrics']['precision']:.4f}",
+            f"- **Recall:** {report['final_test_metrics']['recall']:.4f}",
+            f"- **F1:** {report['final_test_metrics']['f1']:.4f}",
+            f"- **PR-AUC (supplementary):** {report['final_test_metrics']['pr_auc']:.4f}",
+            f"- **ROC-AUC (supplementary):** {report['final_test_metrics']['roc_auc']:.4f}",
+            f"- **TP/FP/FN/TN:** {report['final_test_metrics']['tp']}/{report['final_test_metrics']['fp']}"
+            f"/{report['final_test_metrics']['fn']}/{report['final_test_metrics']['tn']}",
+            "",
+            "## Analysis",
+            "",
+            "### Key Findings",
+            "",
+            f"- **Class imbalance:** ~{report['anomaly_rate_train'] * 100:.1f}% anomaly rate",
+            "- **Primary metrics are Accuracy/Precision/Recall/F1** (MDD v2.3); "
+            "PR-AUC/ROC retained as supplementary",
+            "- **IQR provides interpretable statistical baseline** with per-feature thresholds",
+            "- **Isolation Forest handles unsupervised detection**; contamination set to the "
+            "observed training anomaly rate",
+            "- **Operating threshold is selected on the held-out val split** to avoid test leakage",
+            "",
+            "### Anomaly Types",
+            "",
+            "Synthetic data injects 4 anomaly types (`anomaly_type` column):",
+            "",
+            "1. **amount_spike** — unusually high transaction amount",
+            "2. **new_merchant** — first transaction with a new merchant",
+            "3. **frequency_change** — abnormal transaction frequency",
+            "4. **category_mismatch** — transaction category inconsistent with expectation",
+            "",
+            "### Recommendations",
+            "",
+            "1. Deploy the winning model for real-time scoring",
+            "2. Set anomaly threshold based on business tolerance (precision vs recall)",
+            "3. Monitor model performance on incoming data for drift",
+            "4. Consider ensemble approach for production robustness",
+        ]
+    )
 
     with open(output_dir / "evaluation_report.md", "w") as f:
         f.write("\n".join(lines))

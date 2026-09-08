@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 from app.models.registry import ModuleModel
 from app.schemas.anomaly import (
     AnomalousTransaction,
     AnomalyRequest,
-    AnomalyResponse,
     OverspendingTransaction,
     WhitelistEntry,
 )
@@ -85,19 +85,23 @@ def _overspending_detect(
         cat = txn.get("category", "other")
         category_totals[cat] = category_totals.get(cat, 0.0) + float(txn["amount"])
 
-    results = []
+    results: list[OverspendingTransaction] = []
     for cat, total in category_totals.items():
-        budget = budget_map.get(cat, budget_map.get(f"essentials_{cat}", budget_map.get(f"discretionary_{cat}")))
+        budget = budget_map.get(
+            cat, budget_map.get(f"essentials_{cat}", budget_map.get(f"discretionary_{cat}"))
+        )
         if budget is None:
             continue
-            if total > budget:
-                for txn in transactions:
-                    if txn.get("category") == cat and txn.get("transaction_type") == "expense":
-                        results.append(OverspendingTransaction(
+        if total > budget:
+            for txn in transactions:
+                if txn.get("category") == cat and txn.get("transaction_type") == "expense":
+                    results.append(
+                        OverspendingTransaction(
                             transaction_id=str(txn.get("transaction_id") or ""),
                             budget_excess=round(float(txn["amount"]) * (1 - budget / total), 2),
                             category=cat,
-                        ))
+                        )
+                    )
     return results
 
 
@@ -120,10 +124,12 @@ def detect(module: ModuleModel, request: AnomalyRequest) -> list[AnomalousTransa
     for i, txn in enumerate(txns_for_scoring):
         score = float(scores[i]) if i < len(scores) else 0.0
         reason, contribs = _explanation(txn, score, threshold)
-        results.append(AnomalousTransaction(
-            transaction_id=str(txn.get("transaction_id") or i),
-            anomaly_score=round(score, 4),
-            reason=reason,
-            feature_contributions=contribs,
-        ))
+        results.append(
+            AnomalousTransaction(
+                transaction_id=str(txn.get("transaction_id") or i),
+                anomaly_score=round(score, 4),
+                reason=reason,
+                feature_contributions=contribs,
+            )
+        )
     return results
