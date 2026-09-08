@@ -220,9 +220,13 @@ Also verify the metadata:eval reading is consistent:
 
 ## 11. Current status (2026-09-08)
 
-- Committed: forecaster `tier3_arima` (+ `tier3_sarima` variant wired, training now running),
-  anomaly `tier1_iqr` (IQR fallback; hybrid + adaptive-threshold re-added, full re-run running),
-  PFP trained after this guide is up-to-date (light set incl. Gaussian NB, winner-resolution serving).
-- 15 tests pass (interim scope: pfp optional → 503). Tests to update after pfp trains:
-  `tests/test_pfp.py` (STANDARD → 200), `tests/test_health.py` (metrics set full) + regressions for SARIMA/hybrid tiers.
+- All three families trained, verified, and committed in `models/`:
+  - `models/forecaster/` → winner `tier3_sarima.joblib` (kind `sarima`; degrades to ARIMA on pools < 24 months).
+  - `models/anomaly/` → winner `tier1_iqr` (`anomaly_detector.joblib`); adaptive-threshold + hybrid tiers
+    trained and evidenced in `evaluation.json`, kept under the pre-registered fallback rule.
+  - `models/pfp/` → winner `tier3_svm.joblib` (`CalibratedClassifierCV`); NB tier + winner-resolution serving.
+- 17 tests pass (full scope: PFP STANDARD → 200, metrics set includes all three modules, plus
+  SARIMA-branch and adaptive-threshold unit regressions). `mypy app` shows only pre-existing debt;
+  `ruff format --check` clean for all changed files (2 unrelated legacy files remain unformatted).
+- Heavy tiers (RF/GRU/LSTM/BiLSTM) remain delegated to the teammate GPU box (see §9), per roster.
 - See `INDEX.md` + `README.md` for the master index; update both when this guide changes.
