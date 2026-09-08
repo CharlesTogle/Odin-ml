@@ -1,8 +1,8 @@
 {
   "model_id": "anomaly-tier1_iqr",
   "family": "anomaly",
-  "created_at": "2026-09-07T16:00:04.460424Z",
-  "training_commit": "23eef57",
+  "created_at": "2026-09-08T03:00:39.873185Z",
+  "training_commit": "5b4f274",
   "training_data_hash": "76a0515e9985d9f504d11250819400efa647a99d1c90c95507edf21888130d5a",
   "framework": "scikit-learn",
   "framework_version": "1.9.0",

@@ -1,6 +1,6 @@
 # Anomaly Detector Training Report
 
-**Timestamp:** 2026-09-07T23:59:54.217179
+**Timestamp:** 2026-09-08T11:00:30.833483
 **Task:** Transaction-level anomaly detection (unsupervised)
 **Features:** 24
 **Train/Val/Test:** 996184/213418/213456
@@ -12,9 +12,11 @@
 
 | Model | F1 (mean±std) | Accuracy (mean) | PR-AUC (mean±std) |
 |-------|---------------|-----------------|-------------------|
+| tier2_adaptive_threshold | 0.3718 ± 0.0106 | 0.9766 | 0.2734 ± 0.0080 |
+| tier3_hybrid | 0.3718 ± 0.0106 | 0.9766 | 0.2753 ± 0.0082 |
+| tier2_autoencoder | 0.2272 ± 0.1096 | 0.9175 | 0.1238 ± 0.0672 |
 | tier2_ocsvm | 0.2271 ± 0.0292 | 0.9458 | 0.1195 ± 0.0075 |
 | tier2_isolation_forest | 0.2107 ± 0.0181 | 0.9134 | 0.1061 ± 0.0070 |
-| tier2_autoencoder | 0.1889 ± 0.0989 | 0.8949 | 0.1060 ± 0.0614 |
 | tier1_iqr | 0.1372 ± 0.0085 | 0.7710 | 0.0635 ± 0.0031 |
 | baseline | 0.0000 ± 0.0000 | 0.9698 | N/A |
 

@@ -7,10 +7,12 @@ anomaly detection on synthetic financial data.
 Scope (top-3-lightest, per docs/models/model-candidate-report.md §6):
   Tier 0: Majority-class baseline (sanity floor)
   Tier 1: IQR (statistical, per-feature) — decision-rule baseline
-  Tier 2: Isolation Forest, One-Class SVM (kernel), Autoencoder (PyTorch)
+  Tier 2: Adaptive threshold calibration (IQR-magnitude scoring, ~0 params),
+          Isolation Forest, One-Class SVM (kernel), Autoencoder (PyTorch)
+  Tier 3: Hybrid ensemble (score-average of available Tier 1 + Tier 2)
 
-Heavier candidates (adaptive threshold, hybrid ensemble) are documented as
-"hold" in the roster and are not trained in the default scope.
+Heavier candidates (deep reconstruction ensembles, LLM-style) are documented
+as "research only" in the roster and are not trained in the default scope.
 
 Evaluation:
   - 5-fold expanding window (temporal_folds.json)
@@ -22,6 +24,7 @@ Evaluation:
 
 Usage:
     python training/scripts/train_anomaly.py --input training/datasets/anomaly/ --output models/anomaly/
+    python training/scripts/train_anomaly.py --skip-ae   # CPU host without AE in hybrid
 """
 
 import argparse
@@ -49,7 +52,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.ml.metadata import build_metadata, framework_version_of, write_metadata
-from app.ml.models import IQRDetector, _Autoencoder
+from app.ml.models import AdaptiveThresholdDetector, HybridEnsemble, IQRDetector, _Autoencoder
 
 HAS_PYTORCH = False
 torch = None
@@ -237,6 +240,15 @@ def compute_baseline_metrics(y_true: np.ndarray):
 # ---------------------------------------------------------------------------
 # Tier 1: IQR Detector (canonical class lives in app.ml.models)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Tier 2: Adaptive threshold calibration (Zhong 2025, B6) — ~0 learned params.
+# Scores each row by magnitude-normalized per-feature IQR deviation, so the
+# operating threshold decouples from raw feature units and can be calibrated
+# on the held-out val split (per-feature adaptive bounds). Canonical class
+# lives in app.ml.models so the serving app can unpickle an adaptive winner.
+# ---------------------------------------------------------------------------
+
 
 # ---------------------------------------------------------------------------
 # Tier 2: Isolation Forest
@@ -447,6 +459,13 @@ def main():
     parser.add_argument("--input", default="training/datasets/anomaly/")
     parser.add_argument("--output", default="models/anomaly/")
     parser.add_argument("--folds", default="training/datasets/processed/temporal_folds.json")
+    parser.add_argument(
+        "--skip-ae",
+        action="store_true",
+        help="Skip the PyTorch Autoencoder tier (also excluded from the hybrid). "
+        "Use on CPU-constrained hosts; run the full tier set on a GPU-capable "
+        "teammate machine instead.",
+    )
     args = parser.parse_args()
 
     t0 = time.time()
@@ -499,6 +518,18 @@ def main():
         )
         fold_scores["tier1_iqr"] = iqr_scores
 
+        # Tier 2: Adaptive threshold calibration (IQR-magnitude, ~0 params)
+        adaptive = AdaptiveThresholdDetector(iqr_multiplier=1.5)
+        adaptive.fit(X_train)
+        adaptive_scores = adaptive.score(X_test)
+        adaptive_metrics = compute_metrics(y_test, adaptive_scores)
+        print(
+            f"    Tier 2 (AdaptiveThr): F1={adaptive_metrics['best_f1']:.4f}, "
+            f"Acc={adaptive_metrics['best_accuracy']:.4f}, "
+            f"PR-AUC={adaptive_metrics['pr_auc']:.4f}"
+        )
+        fold_scores["tier2_adaptive_threshold"] = adaptive_scores
+
         # Tier 2: Isolation Forest
         if_model, if_params, if_val_score = train_isolation_forest(X_train, y_train, X_test, y_test)
         if_scores = -if_model.decision_function(X_test)
@@ -530,7 +561,7 @@ def main():
             ocsvm_metrics = {"pr_auc": 0, "best_f1": 0, "best_accuracy": 0}
 
         # Tier 2: Autoencoder
-        if HAS_PYTORCH:
+        if HAS_PYTORCH and not args.skip_ae:
             ae_model, ae_loss, ae_val_score = train_autoencoder(X_train, y_train, X_test, y_test)
             if ae_model is not None:
                 ae_model.eval()
@@ -553,13 +584,31 @@ def main():
         else:
             ae_metrics = {"pr_auc": 0, "best_f1": 0, "best_accuracy": 0}
 
-        # Store fold results (hybrid ensemble is "hold" — not in default scope)
+        # Tier 3: Hybrid ensemble — score-average of available Tier 1 + Tier 2
+        _norm = lambda s: (s - s.min()) / (s.max() - s.min() + 1e-8)
+        _members = [_norm(iqr_scores), adaptive_scores, if_scores]
+        if "tier2_ocsvm" in fold_scores:
+            _members.append(fold_scores["tier2_ocsvm"])
+        if "tier2_autoencoder" in fold_scores:
+            _members.append(fold_scores["tier2_autoencoder"])
+        hybrid_scores = np.mean(_members, axis=0)
+        hybrid_metrics = compute_metrics(y_test, hybrid_scores)
+        print(
+            f"    Tier 3 (Hybrid): F1={hybrid_metrics['best_f1']:.4f}, "
+            f"Acc={hybrid_metrics['best_accuracy']:.4f}, "
+            f"PR-AUC={hybrid_metrics['pr_auc']:.4f} (members={len(_members)})"
+        )
+        fold_scores["tier3_hybrid"] = hybrid_scores
+
+        # Store fold results
         all_fold_results[fold_num] = {
             "baseline": baseline,
             "tier1_iqr": iqr_metrics,
+            "tier2_adaptive_threshold": adaptive_metrics,
             "tier2_isolation_forest": if_metrics,
             "tier2_ocsvm": ocsvm_metrics,
             "tier2_autoencoder": ae_metrics,
+            "tier3_hybrid": hybrid_metrics,
             "models": {
                 "iqr_bounds": iqr.bounds,
                 "if_params": if_params,
@@ -700,6 +749,53 @@ def main():
 
         score_fn = ae_score
         winner_params = {"loss": "mse", "epochs": 50}
+    elif best_model_name == "tier2_adaptive_threshold":
+        winner = AdaptiveThresholdDetector(iqr_multiplier=1.5)
+        winner.fit(X_full_train)
+        score_fn = lambda X: winner.score(X)
+        winner_params = {"iqr_multiplier": 1.5}
+    elif best_model_name == "tier3_hybrid":
+        # Rebuild each member on the full training set and average via HybridEnsemble
+        members = {}
+        members["iqr"] = IQRDetector(iqr_multiplier=1.5)
+        members["iqr"].fit(X_full_train)
+        members["adaptive"] = AdaptiveThresholdDetector(iqr_multiplier=1.5)
+        members["adaptive"].fit(X_full_train)
+        members["if"] = IsolationForest(
+            random_state=RANDOM_SEED,
+            n_jobs=-1,
+            n_estimators=200,
+            max_samples="auto",
+            contamination=contamination,
+            max_features=0.8,
+        )
+        members["if"].fit(X_full_train)
+        members["ocsvm"] = OneClassSVM(kernel="rbf", gamma="scale", nu=0.05)
+        members["ocsvm"].fit(X_full_train)
+        if HAS_PYTORCH and not args.skip_ae:
+            members["ae"] = build_autoencoder(X_full_train.shape[1])
+            members["ae"].train()
+            X_t = torch.tensor(X_full_train, dtype=torch.float32)
+            n_val = max(1, int(len(X_t) * 0.1))
+            X_tr, X_v = X_t[: len(X_t) - n_val], X_t[len(X_t) - n_val :]
+            train_ds = TensorDataset(X_tr, X_tr)
+            train_dl = DataLoader(train_ds, batch_size=64, shuffle=True)
+            optimizer = torch.optim.Adam(members["ae"].parameters(), lr=0.001)
+            criterion = nn.MSELoss()
+            for _ in range(30):
+                for xb, _ in train_dl:
+                    optimizer.zero_grad()
+                    loss = criterion(xb, members["ae"](xb))
+                    loss.backward()
+                    optimizer.step()
+            members["ae"].eval()
+        detector_order = ["iqr", "adaptive", "if", "ocsvm"] + (["ae"] if "ae" in members else [])
+        winner = HybridEnsemble(
+            detectors=[members[k] for k in detector_order],
+            weights=[1.0 / len(detector_order)] * len(detector_order),
+        )
+        score_fn = lambda X: winner.score(X)
+        winner_params = {"members": detector_order}
     else:
         winner = None
         score_fn = lambda X: np.zeros(X.shape[0], dtype=float)

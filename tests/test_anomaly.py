@@ -45,3 +45,27 @@ def test_anomaly_overspending_detects_excess(client):
     body = resp.json()
     assert any(o["category"] == "food" for o in body["overspending_transactions"])
     assert body["status"] in ("SUCCESS", "FALLBACK")
+
+
+def test_adaptive_threshold_detector_scores():
+    """AdaptiveThresholdDetector (awarded Tier 2 candidate) is an in-scope,
+    app-unpicklable scorer: it must live in app.ml.models and behave like the
+    other statistical detectors (fit -> [0, )-bounded score)."""
+    import numpy as np
+
+    from app.ml.models import AdaptiveThresholdDetector, IQRDetector
+
+    rng = np.random.RandomState(42)
+    X = rng.normal(0.0, 1.0, size=(500, 4))
+
+    adaptive = AdaptiveThresholdDetector(iqr_multiplier=1.5).fit(X)
+    scores = adaptive.score(X)
+    assert scores.shape == (500,)
+    assert np.isfinite(scores).all()
+    assert (scores >= 0).all()
+
+    outlier = X.max(axis=0) * 5.0
+    assert adaptive.score(outlier[None, :])[0] > scores.mean()
+
+    baseline = IQRDetector(iqr_multiplier=1.5).fit(X)
+    assert np.isfinite(baseline.score(X)).all()

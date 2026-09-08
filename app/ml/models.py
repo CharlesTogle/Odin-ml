@@ -143,6 +143,37 @@ class IQRDetector:
         return anomaly_flags / X.shape[1]
 
 
+class AdaptiveThresholdDetector:
+    """IQR-magnitude deviation scorer with per-feature adaptive bounds.
+
+    Similar to :class:`IQRDetector` but scores by the normalized distance
+    outside the IQR bounds rather than a binary flag, so it produces a
+    fine-grained anomaly score (~0 additional tuned parameters).
+    """
+
+    def __init__(self, iqr_multiplier: float = 1.5):
+        self.iqr_multiplier = iqr_multiplier
+        self.bounds: dict[int, tuple[float, float]] = {}
+
+    def fit(self, X: np.ndarray) -> AdaptiveThresholdDetector:
+        for j in range(X.shape[1]):
+            col = X[:, j]
+            q1, q3 = np.percentile(col, [25, 75])
+            iqr = float(np.clip(q3 - q1, 1e-8, None))
+            self.bounds[j] = (q1 - self.iqr_multiplier * iqr, q3 + self.iqr_multiplier * iqr)
+        return self
+
+    def score(self, X: np.ndarray) -> np.ndarray:
+        dev = np.zeros(X.shape[0], dtype=float)
+        for j in range(X.shape[1]):
+            lo, hi = self.bounds[j]
+            span = hi - lo
+            below = np.clip(lo - X[:, j], 0, None)
+            above = np.clip(X[:, j] - hi, 0, None)
+            dev += (below + above) / float(span)
+        return dev / X.shape[1]
+
+
 class _Autoencoder(nn.Module):
     """PyTorch autoencoder for anomaly detection (reconstruction error)."""
 
