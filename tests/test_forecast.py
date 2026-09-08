@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.schemas.forecast import ForecastHorizon, ForecastLevel, ForecastRequest
+from app.services import forecast_service
 from tests.conftest import load_transactions
 
 
@@ -11,7 +13,7 @@ def test_forecast_predict(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] in ("SUCCESS", "FALLBACK")
-    assert len(body["forecasts"]) == 1
+    assert len(body["forecasts"]) == 4
     assert body["forecasts"][0]["amount"] >= 0
     assert body["confidence_intervals"]["lower_95"] <= body["confidence_intervals"]["upper_95"]
 
@@ -80,3 +82,105 @@ def test_forecast_rejects_empty_transactions(client):
     payload = {"user_id": "test-user-3", "historical_transactions": []}
     resp = client.post("/api/v1/forecast/predict", json=payload)
     assert resp.status_code == 422
+
+
+def test_category_group_forecast_uses_group_labels_from_transactions(monkeypatch):
+    monkeypatch.setattr(
+        forecast_service,
+        "_predict_monthly_total",
+        lambda _model, _transactions: (1_000.0, {"lower_80": 800.0, "upper_80": 1_200.0, "lower_95": 600.0, "upper_95": 1_400.0}),
+    )
+    request = ForecastRequest(
+        user_id="test-user-4",
+        historical_transactions=[
+            {"date": "2026-09-01", "amount": 600.0, "category": "Essentials", "transaction_type": "expense"},
+            {"date": "2026-09-02", "amount": 400.0, "category": "Discretionary", "transaction_type": "expense"},
+        ],
+        forecast_level=ForecastLevel.CATEGORY_GROUP,
+    )
+
+    points, _, level = forecast_service.forecast(object(), request)
+
+    assert level == "category_group"
+    assert len(points) == 8
+    assert sum(point.amount for point in points if point.category == "Essentials") == 600.0
+    assert sum(point.amount for point in points if point.category == "Discretionary") == 400.0
+
+
+def test_total_forecast_returns_four_weekly_points_for_a_month(monkeypatch):
+    monkeypatch.setattr(
+        forecast_service,
+        "_predict_monthly_total",
+        lambda _model, _transactions: (1_000.0, {"lower_80": 800.0, "upper_80": 1_200.0, "lower_95": 600.0, "upper_95": 1_400.0}),
+    )
+    request = ForecastRequest(
+        user_id="test-user-5",
+        historical_transactions=[
+            {"date": "2026-09-01", "amount": 100.0, "category": "Essentials", "transaction_type": "expense"},
+            {"date": "2026-09-08", "amount": 200.0, "category": "Essentials", "transaction_type": "expense"},
+            {"date": "2026-09-15", "amount": 300.0, "category": "Essentials", "transaction_type": "expense"},
+            {"date": "2026-09-22", "amount": 400.0, "category": "Essentials", "transaction_type": "expense"},
+        ],
+        forecast_horizon=ForecastHorizon.MONTHLY,
+    )
+
+    points, _, level = forecast_service.forecast(object(), request)
+
+    assert level == "total"
+    assert [point.amount for point in points] == [100.0, 200.0, 300.0, 400.0]
+    assert [point.date for point in points] == ["2026-09-29", "2026-10-06", "2026-10-13", "2026-10-20"]
+
+
+def test_total_forecast_returns_twelve_monthly_points_for_a_year(monkeypatch):
+    monkeypatch.setattr(
+        forecast_service,
+        "_predict_monthly_total",
+        lambda _model, _transactions: (1_000.0, {"lower_80": 800.0, "upper_80": 1_200.0, "lower_95": 600.0, "upper_95": 1_400.0}),
+    )
+    request = ForecastRequest(
+        user_id="test-user-6",
+        historical_transactions=[
+            {"date": "2026-09-01", "amount": 100.0, "category": "Essentials", "transaction_type": "expense"}
+        ],
+        forecast_horizon=ForecastHorizon.YEARLY,
+    )
+
+    points, _, _ = forecast_service.forecast(object(), request)
+
+    assert len(points) == 12
+    assert sum(point.amount for point in points) == 12_000.0
+    assert points[0].date == "2026-10-01"
+    assert points[-1].date == "2027-09-01"
+
+
+def test_category_group_forecast_returns_weekly_points_for_a_month(monkeypatch):
+    monkeypatch.setattr(
+        forecast_service,
+        "_predict_monthly_total",
+        lambda _model, _transactions: (1_000.0, {"lower_80": 800.0, "upper_80": 1_200.0, "lower_95": 600.0, "upper_95": 1_400.0}),
+    )
+    request = ForecastRequest(
+        user_id="test-user-7",
+        historical_transactions=[
+            {"date": "2026-09-01", "amount": 60.0, "category": "Essentials", "transaction_type": "expense"},
+            {"date": "2026-09-08", "amount": 40.0, "category": "Discretionary", "transaction_type": "expense"},
+        ],
+        forecast_level=ForecastLevel.CATEGORY_GROUP,
+    )
+
+    points, _, level = forecast_service.forecast(object(), request)
+
+    assert level == "category_group"
+    assert len(points) == 8
+    assert [(point.category, point.amount) for point in points[:4]] == [
+        ("Essentials", 600.0),
+        ("Essentials", 0.0),
+        ("Essentials", 0.0),
+        ("Essentials", 0.0),
+    ]
+    assert [(point.category, point.amount) for point in points[4:]] == [
+        ("Discretionary", 0.0),
+        ("Discretionary", 400.0),
+        ("Discretionary", 0.0),
+        ("Discretionary", 0.0),
+    ]

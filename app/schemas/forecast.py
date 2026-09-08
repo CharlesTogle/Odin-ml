@@ -11,6 +11,7 @@ class ForecastHorizon(str, Enum):
     WEEKLY = "WEEKLY"
     SEMI_MONTHLY = "SEMI_MONTHLY"
     MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
 
 
 class ForecastLevel(str, Enum):

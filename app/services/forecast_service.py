@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import torch
 
 from app.models.registry import ModuleModel
@@ -98,7 +99,44 @@ def _horizon_factor(horizon: str) -> float:
         return 7.0 / 30.44
     if horizon == "SEMI_MONTHLY":
         return 15.0 / 30.44
+    if horizon == "YEARLY":
+        return 12.0
     return 1.0
+
+
+def _projection_weights(transactions: list[dict], horizon: str) -> np.ndarray:
+    """Allocate a horizon total using the user's observed spending rhythm."""
+    df = transactions_to_frame(transactions)
+    expense = df[df["transaction_type"] == "expense"].copy()
+    period_count = {"WEEKLY": 7, "SEMI_MONTHLY": 2, "MONTHLY": 4, "YEARLY": 12}[horizon]
+    if expense.empty:
+        return np.full(period_count, 1.0 / period_count)
+
+    if horizon == "WEEKLY":
+        expense["period"] = expense["date"].dt.dayofweek
+    elif horizon == "SEMI_MONTHLY":
+        expense["period"] = (expense["date"].dt.day > 15).astype(int)
+    elif horizon == "MONTHLY":
+        expense["period"] = ((expense["date"].dt.day - 1) // 7).clip(upper=3)
+    else:
+        expense["period"] = expense["date"].dt.month - 1
+
+    totals = expense.groupby("period")["amount"].sum().reindex(range(period_count), fill_value=0.0)
+    total = float(totals.sum())
+    return totals.to_numpy(dtype=float) / total if total > 0 else np.full(period_count, 1.0 / period_count)
+
+
+def _projection_dates(transactions: list[dict], horizon: str) -> list[str]:
+    df = transactions_to_frame(transactions)
+    last_date = df["date"].max().normalize()
+    if horizon == "WEEKLY":
+        return [(last_date + np.timedelta64(offset, "D")).date().isoformat() for offset in range(1, 8)]
+    if horizon == "SEMI_MONTHLY":
+        return [(last_date + np.timedelta64(offset, "D")).date().isoformat() for offset in (1, 8)]
+    if horizon == "MONTHLY":
+        return [(last_date + np.timedelta64(offset, "D")).date().isoformat() for offset in (7, 14, 21, 28)]
+    first_next_month = last_date + pd.offsets.MonthBegin(1)
+    return [date.date().isoformat() for date in pd.date_range(first_next_month, periods=12, freq="MS")]
 
 
 def _category_proportions(transactions: list[dict]) -> dict[str, float]:
@@ -126,22 +164,38 @@ def forecast(
         lower_95=round(scaled_ci["lower_95"], 2),
         upper_95=round(scaled_ci["upper_95"], 2),
     )
+    transactions = [t.model_dump() for t in request.historical_transactions]
+    weights = _projection_weights(transactions, request.forecast_horizon.value)
+    dates = _projection_dates(transactions, request.forecast_horizon.value)
 
     if request.forecast_level == ForecastLevel.TOTAL:
-        return [ForecastPoint(date="next", amount=round(predicted, 2))], interval, "total"
+        points = [
+            ForecastPoint(date=date, amount=round(predicted * weight, 2))
+            for date, weight in zip(dates, weights, strict=True)
+        ]
+        return points, interval, "total"
 
-    proportions = _category_proportions([t.model_dump() for t in request.historical_transactions])
+    proportions = _category_proportions(transactions)
     if request.forecast_level == ForecastLevel.CATEGORY_GROUP:
-        buckets = {
-            "essentials": ["food", "housing", "transport", "health", "education"],
-            "discretionary": ["other", "leisure", "entertainment"],
-        }
-        points = []
-        for group, cats in buckets.items():
-            share = sum(proportions.get(c, 0.0) for c in cats)
-            points.append(
-                ForecastPoint(date="next", amount=round(predicted * share, 2), category=group)
+        # The application sends category-group labels (for example, "Essentials"),
+        # not individual category slugs. Project every supplied group over time.
+        points = [
+            ForecastPoint(date=date, amount=round(predicted * share * weight, 2), category=group)
+            for group, share in sorted(proportions.items(), key=lambda item: item[1], reverse=True)
+            for date, weight in zip(
+                dates,
+                _projection_weights(
+                    [
+                        transaction
+                        for transaction in transactions
+                        if transaction["transaction_type"] == "expense"
+                        and transaction["category"] == group
+                    ],
+                    request.forecast_horizon.value,
+                ),
+                strict=True,
             )
+        ]
         return points, interval, "category_group"
 
     points = []
