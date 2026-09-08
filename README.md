@@ -21,6 +21,10 @@ Python microservice for machine learning APIs and inference, plus the complete m
 > (each final model committed with `metadata.json`). The previous scope's winner artifacts
 > remain in `training/figures/models/` and are **not** moved.
 
+> **New contributor?** Start with `docs/models/TEAMMATE-GUIDE.md` — the trusted path for
+> humans and AI agents: decided model scope, per-family training runbooks, CPU/GPU toggles,
+> metadata/eval contract, and verification commands.
+
 ## Model Development Pipeline
 
 ```

@@ -2,7 +2,7 @@
 
 - **Project:** Development of BUDI: A Personalized Intelligent Finance Management Application for Filipinos Using Classification, Forecasting, Optimization, and Anomaly Detection Models for Improving Savings and Debt
 - **Institution:** University of Makati | Group 4, III-DCSAD
-- **Last indexed:** 2026-08-31
+- **Last indexed:** 2026-09-08
 
 ---
 
@@ -14,6 +14,7 @@
 | FastAPI service code (endpoints, models, schemas) | `app/` |
 | Run the test suite | `tests/` (run `pytest`) |
 | Model training pipeline and phase docs | `training/` |
+| **Trusted path for teammates/agents to train & serve** | `docs/models/TEAMMATE-GUIDE.md` |
 | ML design documents (data collection, EDA, thresholds) | `training/docs/` |
 | Engineering and documentation standards | `docs/standards/` |
 | Enforceable Python/ML code standards | `docs/standards/REPOSITORY-STANDARDS.md` |
@@ -92,6 +93,7 @@ The model development pipeline. Large generated artifacts are gitignored; script
 | Path | Purpose |
 | :--- | :--- |
 | `docs/README.md` | Clarifies the split between `docs/standards/`, `docs/models/`, and `training/docs/`. |
+| `docs/models/TEAMMATE-GUIDE.md` | Trusted path for human teammates and AI agents: scope, runbooks, verification. |
 | `docs/models/model-candidate-roster.md` | RRL-grounded candidate algorithms per model family. |
 | `docs/standards/REPOSITORY-STANDARDS.md` | Enforceable Python/ML engineering standards. |
 | `docs/standards/git-commit-standards.md` | Git commit message format and scopes. |
