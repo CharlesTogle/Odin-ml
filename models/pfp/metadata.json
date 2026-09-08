@@ -1,0 +1,53 @@
+{
+  "model_id": "pfp-tier3_svm",
+  "family": "pfp",
+  "created_at": "2026-09-08T01:17:07.004276Z",
+  "training_commit": "5b4f274",
+  "training_data_hash": "47ae526f3a61776fb68903438a44f9689e3cbe85561eeccafc454eacc94d4f2e",
+  "framework": "scikit-learn",
+  "framework_version": "1.9.0",
+  "python_version": "3.14.4",
+  "artifacts": [
+    "tier3_svm.joblib"
+  ],
+  "feature_columns": [
+    "income_stability_cv",
+    "obligation_ratio",
+    "savings_rate",
+    "debt_to_income",
+    "discretionary_ratio",
+    "income_trend",
+    "expense_trend",
+    "volatility_index",
+    "category_entropy",
+    "transaction_frequency",
+    "avg_transaction_size",
+    "income_regularity",
+    "expense_regularity",
+    "income_expense_gap",
+    "essential_income_ratio",
+    "month_sin",
+    "month_cos",
+    "income_volatility_interaction",
+    "obligation_volatility_interaction"
+  ],
+  "metrics": {
+    "primary": {
+      "name": "macro_f1",
+      "value": 0.6744638359373892,
+      "threshold": null,
+      "folds": 5
+    },
+    "secondary": {
+      "accuracy": 0.6769999999999999,
+      "macro_f1_std": 0.015566592907897367,
+      "accuracy_std": 0.014153479701272077
+    }
+  },
+  "decision_rule": "winner must beat the rule-based Tier 1 by >2 points of Macro-F1; otherwise fall back to Tier 1",
+  "fitted": true,
+  "serving_note": "loaded by app/models/loader.py",
+  "winner_reason": "Best learned model (tier3_svm) beats Tier 1 by 0.6050 (> 0.02 margin)",
+  "winner": "tier3_svm",
+  "winner_artifact": "tier3_svm.joblib"
+}

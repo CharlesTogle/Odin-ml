@@ -8,8 +8,10 @@ def test_pfp_standard_classify(client):
     payload = {"user_id": "test-user-1", "classification_mode": "STANDARD",
                "payload": {"historical_transactions": txns}}
     resp = client.post("/api/v1/pfp/classify", json=payload)
-    # Interim scope: PFP training is deferred; STANDARD mode needs the model.
-    assert resp.status_code == 503
+    assert resp.status_code == 200
+    classification = resp.json()["classification"]
+    assert classification["status"] == "SUCCESS"
+    assert classification["prediction"].count("/") == 2 or classification["prediction"].count("_") == 2
 
 
 def test_pfp_questionnaire_classify(client):

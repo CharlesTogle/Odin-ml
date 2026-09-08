@@ -17,5 +17,5 @@ def test_metrics(client):
     resp = client.get("/metrics")
     assert resp.status_code == 200
     body = resp.json()
-    # Interim scope: forecaster + anomaly are trained; pfp is deferred.
-    assert {"forecaster", "anomaly"} <= set(body["modules"])
+    assert "modules" in body
+    assert {"pfp", "forecaster", "anomaly"} <= set(body["modules"])

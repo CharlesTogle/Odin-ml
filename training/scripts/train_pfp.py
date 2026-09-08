@@ -7,21 +7,24 @@ classification using temporal fold evaluation.
 Tiers:
   Tier 0: Majority-class baseline (sanity floor)
   Tier 1: Rule-based classifier (ROC-calibrated thresholds)
-  Tier 2: Logistic Regression (L2, multi-class)
-  Tier 3: Random Forest, SVM (RBF kernel)
+  Tier 2: Logistic Regression (L2, multi-class), Gaussian Naive Bayes
+  Tier 3: Random Forest, SVM (RBF kernel, calibrated)
   Tier 4: XGBoost Classifier
 
 Evaluation:
   - 5-fold expanding window (temporal_folds.json)
   - Primary metric: Macro-F1 Score
   - Pre-registered margin: 2 points Macro-F1 (Tier 1 vs best learned)
+  - Winner artifact resolved by evaluation.json at serve time
+    (app.models.registry._resolve_pfp_artifact)
 
 Usage:
-    python scripts/train_pfp.py --input datasets/engineered/ --output models/pfp/
+    python training/scripts/train_pfp.py --input training/datasets/engineered/ --output models/pfp/
 """
 
 import argparse
 import json
+import os
 import sys
 import time
 import warnings
@@ -43,11 +46,21 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
 )
+from sklearn.naive_bayes import GaussianNB
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from app.ml.metadata import build_metadata, framework_version_of, write_metadata
+from app.ml.models import RuleBasedClassifier
+
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
 try:
     import xgboost as xgb
+
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
@@ -55,9 +68,11 @@ except ImportError:
 
 try:
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import seaborn as sns
+
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
@@ -80,30 +95,56 @@ PFP_CLASSES = [
 
 PFP_PALETTE = {
     "Stable/Obligated/Tolerant": "#3498db",
-    "Stable/Obligated/At-Risk":    "#2980b9",
-    "Stable/Flexible/Tolerant":  "#2ecc71",
-    "Stable/Flexible/At-Risk":     "#27ae60",
+    "Stable/Obligated/At-Risk": "#2980b9",
+    "Stable/Flexible/Tolerant": "#2ecc71",
+    "Stable/Flexible/At-Risk": "#27ae60",
     "Variable/Obligated/Tolerant": "#e67e22",
-    "Variable/Obligated/At-Risk":    "#d35400",
-    "Variable/Flexible/Tolerant":  "#f39c12",
-    "Variable/Flexible/At-Risk":     "#e74c3c",
+    "Variable/Obligated/At-Risk": "#d35400",
+    "Variable/Flexible/Tolerant": "#f39c12",
+    "Variable/Flexible/At-Risk": "#e74c3c",
 }
 
 PRE_REGISTERED_MARGIN = 0.02  # 2 points of Macro-F1
 
-META_COLUMNS = ["user_id", "month", "pfp_label", "runway_months", "financial_tolerance",
-                "is_anomalous", "anomaly_type"]
+WINNER_ARTIFACTS = {
+    "tier0_majority": "tier0_majority.joblib",
+    "tier1_rule_based": "tier1_rule_based.joblib",
+    "tier2_logistic_regression": "tier2_logistic_regression.joblib",
+    "tier2_naive_bayes": "tier2_naive_bayes.joblib",
+    "tier3_random_forest": "tier3_random_forest.joblib",
+    "tier3_svm": "tier3_svm.joblib",
+    "tier4_xgboost": "tier4_xgboost.joblib",
+}
+
+META_COLUMNS = [
+    "user_id",
+    "month",
+    "pfp_label",
+    "runway_months",
+    "financial_tolerance",
+    "is_anomalous",
+    "anomaly_type",
+]
 
 RAW_COLUMNS = [
-    "total_income", "total_expenses", "food_expense", "housing_expense",
-    "transport_expense", "health_expense", "education_expense", "other_expense",
-    "savings", "debt_payment", "transaction_count",
+    "total_income",
+    "total_expenses",
+    "food_expense",
+    "housing_expense",
+    "transport_expense",
+    "health_expense",
+    "education_expense",
+    "other_expense",
+    "savings",
+    "debt_payment",
+    "transaction_count",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class FoldResult:
@@ -129,6 +170,7 @@ class TrainingReport:
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
+
 
 def load_engineered_data(input_dir: str) -> dict[str, pd.DataFrame]:
     """Load engineered train/val/test parquets."""
@@ -170,6 +212,7 @@ def load_split_metadata(input_dir: str) -> dict:
 # ---------------------------------------------------------------------------
 # Persona-level aggregation
 # ---------------------------------------------------------------------------
+
 
 def aggregate_to_personas(
     df: pd.DataFrame, feature_cols: list[str]
@@ -223,118 +266,9 @@ def prepare_feature_matrix(
 
 
 # ---------------------------------------------------------------------------
-# Tier 1: Rule-based classifier
+# Tier 1: Rule-based classifier (canonical class in app.ml.models)
 # ---------------------------------------------------------------------------
 
-class RuleBasedClassifier:
-    """Deterministic rule-based PFP classifier with ROC-calibrated thresholds.
-
-    Calibrates CV, obligation ratio, and runway thresholds on training data using
-    Youden's J statistic (maximizes TPR - FPR) for each dimension independently.
-    """
-
-    def __init__(self):
-        self.cv_threshold = 0.50   # default (stable vs volatile)
-        self.obl_threshold = 0.60  # default (obligated vs flexible)
-        self.runway_threshold = 3.0  # default (at-risk vs tolerant, months)
-        self._fitted = False
-
-    def _calibrate_threshold(
-        self, scores: np.ndarray, positive_mask: np.ndarray,
-        candidate_range: tuple[float, float] = (0.05, 0.80), step: float = 0.01
-    ) -> float:
-        """Find optimal threshold via Youden's J statistic."""
-        thresholds = np.arange(candidate_range[0], candidate_range[1], step)
-        best_j = -1
-        best_threshold = np.median(thresholds)
-
-        for t in thresholds:
-            predicted_positive = scores >= t
-            tp = np.sum(predicted_positive & positive_mask)
-            fn = np.sum(~predicted_positive & positive_mask)
-            fp = np.sum(predicted_positive & ~positive_mask)
-            tn = np.sum(~predicted_positive & ~positive_mask)
-
-            tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
-            fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-            j = tpr - fpr
-
-            if j > best_j:
-                best_j = j
-                best_threshold = t
-
-        return float(best_threshold)
-
-    def fit(self, X: np.ndarray, y: np.ndarray, feature_names: list[str]):
-        """Calibrate thresholds on training data."""
-        cv_idx = feature_names.index("income_stability_cv")
-        obl_idx = feature_names.index("obligation_ratio")
-
-        cv_scores = X[:, cv_idx]
-        obl_scores = X[:, obl_idx]
-
-        # Income stability: Stable = CV < threshold (lower CV = more stable)
-        stable_mask = np.array([label.startswith("Stable") for label in y])
-        self.cv_threshold = self._calibrate_threshold(
-            cv_scores, stable_mask,
-            candidate_range=(0.05, 0.80), step=0.01
-        )
-
-        # Obligation: Obligated = ratio > threshold
-        obligated_mask = np.array(["Obligated" in label for label in y])
-        self.obl_threshold = self._calibrate_threshold(
-            obl_scores, obligated_mask,
-            candidate_range=(0.20, 0.90), step=0.01
-        )
-
-        # Runway tolerance: Tolerant = runway >= threshold (months)
-        # Higher runway = more tolerant; positive_mask = Tolerant
-        if "runway_months" in feature_names:
-            runway_idx = feature_names.index("runway_months")
-            runway_scores = X[:, runway_idx]
-            tolerant_mask = np.array(["Tolerant" in label for label in y])
-            self.runway_threshold = self._calibrate_threshold(
-                runway_scores, tolerant_mask,
-                candidate_range=(1.0, 8.0), step=0.5
-            )
-
-        self._fitted = True
-        return self
-
-    def predict(self, X: np.ndarray, feature_names: list[str]) -> np.ndarray:
-        """Predict PFP class using calibrated thresholds."""
-        cv_idx = feature_names.index("income_stability_cv")
-        obl_idx = feature_names.index("obligation_ratio")
-
-        cv_scores = X[:, cv_idx]
-        obl_scores = X[:, obl_idx]
-
-        if "runway_months" in feature_names:
-            runway_idx = feature_names.index("runway_months")
-            runway_scores = X[:, runway_idx]
-        else:
-            runway_scores = np.full(len(cv_scores), 3.0)
-
-        predictions = []
-        for cv, obl, runway in zip(cv_scores, obl_scores, runway_scores):
-            stability = "Stable" if cv < self.cv_threshold else "Variable"
-            obligation = "Obligated" if obl > self.obl_threshold else "Flexible"
-            tolerance = "Tolerant" if runway >= self.runway_threshold else "At-Risk"
-            predictions.append(f"{stability}/{obligation}/{tolerance}")
-
-        return np.array(predictions)
-
-    def get_params(self) -> dict:
-        return {
-            "cv_threshold": self.cv_threshold,
-            "obl_threshold": self.obl_threshold,
-            "runway_threshold": self.runway_threshold,
-        }
-
-
-# ---------------------------------------------------------------------------
-# Tier training and evaluation
-# ---------------------------------------------------------------------------
 
 def train_tier0(X_train: np.ndarray, y_train: np.ndarray) -> DummyClassifier:
     """Tier 0: Majority-class baseline."""
@@ -356,24 +290,27 @@ def train_tier2(X_train: np.ndarray, y_train: np.ndarray) -> LogisticRegression:
     """Tier 2: Logistic Regression (L2, multi-class)."""
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_train)
-    model = LogisticRegression(
-        max_iter=1000, random_state=42
-    )
+    model = LogisticRegression(max_iter=1000, random_state=42)
     model.fit(X_scaled, y_train)
     return {"model": model, "scaler": scaler}
 
 
 def train_tier3_rf(X_train: np.ndarray, y_train: np.ndarray) -> RandomForestClassifier:
     """Tier 3: Random Forest."""
-    model = RandomForestClassifier(
-        n_estimators=200, max_depth=10, random_state=42, n_jobs=-1
-    )
+    model = RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+    return model
+
+
+def train_tier2_nb(X_train: np.ndarray, y_train: np.ndarray) -> GaussianNB:
+    """Tier 2: Gaussian Naive Bayes (no scaling required)."""
+    model = GaussianNB()
     model.fit(X_train, y_train)
     return model
 
 
 def train_tier3_svm(X_train: np.ndarray, y_train: np.ndarray) -> dict:
-    """Tier 3: SVM (RBF kernel) with subsampling for speed."""
+    """Tier 3: SVM (RBF kernel) with probability calibration for serving."""
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_train)
 
@@ -388,7 +325,8 @@ def train_tier3_svm(X_train: np.ndarray, y_train: np.ndarray) -> dict:
         X_sub = X_scaled
         y_sub = y_train
 
-    model = SVC(kernel="rbf", random_state=42, probability=True)
+    base_svm = SVC(kernel="rbf", random_state=42)
+    model = CalibratedClassifierCV(base_svm, ensemble=False, cv=3)
     model.fit(X_sub, y_sub)
     return {"model": model, "scaler": scaler}
 
@@ -414,11 +352,14 @@ def train_tier4_xgb(X_train: np.ndarray, y_train: np.ndarray) -> Optional[Any]:
 # Prediction helpers
 # ---------------------------------------------------------------------------
 
+
 def predict_tier0(model: DummyClassifier, X: np.ndarray) -> np.ndarray:
     return model.predict(X)
 
 
-def predict_tier1(model: RuleBasedClassifier, X: np.ndarray, feature_names: list[str]) -> np.ndarray:
+def predict_tier1(
+    model: RuleBasedClassifier, X: np.ndarray, feature_names: list[str]
+) -> np.ndarray:
     return model.predict(X, feature_names)
 
 
@@ -428,6 +369,10 @@ def predict_tier2(tier2: dict, X: np.ndarray) -> np.ndarray:
 
 
 def predict_tier3_rf(model: RandomForestClassifier, X: np.ndarray) -> np.ndarray:
+    return model.predict(X)
+
+
+def predict_tier2_nb(model: GaussianNB, X: np.ndarray) -> np.ndarray:
     return model.predict(X)
 
 
@@ -448,15 +393,12 @@ def predict_tier4_xgb(tier4: dict, X: np.ndarray) -> np.ndarray:
 # Evaluation
 # ---------------------------------------------------------------------------
 
-def evaluate_model(
-    y_true: np.ndarray, y_pred: np.ndarray, tier_name: str
-) -> dict[str, Any]:
+
+def evaluate_model(y_true: np.ndarray, y_pred: np.ndarray, tier_name: str) -> dict[str, Any]:
     """Compute metrics for a single tier on a single fold."""
     macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
     accuracy = accuracy_score(y_true, y_pred)
-    per_class = classification_report(
-        y_true, y_pred, output_dict=True, zero_division=0
-    )
+    per_class = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
 
     # Per-class accuracy
     per_class_acc = {}
@@ -480,9 +422,9 @@ def evaluate_model(
 # Confusion matrix plot
 # ---------------------------------------------------------------------------
 
+
 def plot_confusion_matrix(
-    y_true: np.ndarray, y_pred: np.ndarray, tier_name: str, fold: int,
-    output_dir: Path
+    y_true: np.ndarray, y_pred: np.ndarray, tier_name: str, fold: int, output_dir: Path
 ):
     """Save confusion matrix plot."""
     if not HAS_MATPLOTLIB:
@@ -493,8 +435,13 @@ def plot_confusion_matrix(
 
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(
-        cm, annot=True, fmt="d", cmap="Blues",
-        xticklabels=available_classes, yticklabels=available_classes, ax=ax
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=available_classes,
+        yticklabels=available_classes,
+        ax=ax,
     )
     ax.set_xlabel("Predicted")
     ax.set_ylabel("True")
@@ -510,6 +457,7 @@ def plot_confusion_matrix(
 # ---------------------------------------------------------------------------
 # Main training pipeline
 # ---------------------------------------------------------------------------
+
 
 def run_training(
     input_dir: str = "datasets/engineered/",
@@ -555,9 +503,9 @@ def run_training(
         all_pids = set(splits["train"]["user_id"].unique())
         n = len(all_pids)
         pid_list = sorted(all_pids)
-        train_pids = set(pid_list[:int(n * 0.7)])
-        val_pids = set(pid_list[int(n * 0.7):int(n * 0.85)])
-        test_pids = set(pid_list[int(n * 0.85):])
+        train_pids = set(pid_list[: int(n * 0.7)])
+        val_pids = set(pid_list[int(n * 0.7) : int(n * 0.85)])
+        test_pids = set(pid_list[int(n * 0.85) :])
 
     print(f"  Train personas: {len(train_pids):,}")
     print(f"  Val personas:   {len(val_pids):,}")
@@ -588,8 +536,14 @@ def run_training(
         pre_registered_margin=PRE_REGISTERED_MARGIN,
     )
 
-    tier_names = ["tier0_majority", "tier1_rule_based", "tier2_logistic_regression",
-                  "tier3_random_forest", "tier3_svm"]
+    tier_names = [
+        "tier0_majority",
+        "tier1_rule_based",
+        "tier2_logistic_regression",
+        "tier2_naive_bayes",
+        "tier3_random_forest",
+        "tier3_svm",
+    ]
     if HAS_XGBOOST:
         tier_names.append("tier4_xgboost")
 
@@ -638,7 +592,9 @@ def run_training(
         fold_macro_f1s["tier0_majority"].append(metrics_t0["macro_f1"])
         fold_accuracies["tier0_majority"].append(metrics_t0["accuracy"])
         plot_confusion_matrix(y_fv, y_pred_t0, "tier0_majority", fold_num, Path(output_dir))
-        print(f"    Tier 0 (Majority):       Macro-F1={metrics_t0['macro_f1']:.4f}  Acc={metrics_t0['accuracy']:.4f}")
+        print(
+            f"    Tier 0 (Majority):       Macro-F1={metrics_t0['macro_f1']:.4f}  Acc={metrics_t0['accuracy']:.4f}"
+        )
 
         # Tier 1
         t1 = train_tier1(X_ft, y_ft, used_features)
@@ -649,8 +605,10 @@ def run_training(
         fold_macro_f1s["tier1_rule_based"].append(metrics_t1["macro_f1"])
         fold_accuracies["tier1_rule_based"].append(metrics_t1["accuracy"])
         plot_confusion_matrix(y_fv, y_pred_t1, "tier1_rule_based", fold_num, Path(output_dir))
-        print(f"    Tier 1 (Rule-Based):     Macro-F1={metrics_t1['macro_f1']:.4f}  Acc={metrics_t1['accuracy']:.4f}"
-              f"  CV_th={t1.cv_threshold:.3f}  Obl_th={t1.obl_threshold:.3f}  Runway_th={t1.runway_threshold:.1f}")
+        print(
+            f"    Tier 1 (Rule-Based):     Macro-F1={metrics_t1['macro_f1']:.4f}  Acc={metrics_t1['accuracy']:.4f}"
+            f"  CV_th={t1.cv_threshold:.3f}  Obl_th={t1.obl_threshold:.3f}  Runway_th={t1.runway_threshold:.1f}"
+        )
 
         # Tier 2
         t2 = train_tier2(X_ft, y_ft)
@@ -659,8 +617,24 @@ def run_training(
         fold_result.tier_results["tier2_logistic_regression"] = metrics_t2
         fold_macro_f1s["tier2_logistic_regression"].append(metrics_t2["macro_f1"])
         fold_accuracies["tier2_logistic_regression"].append(metrics_t2["accuracy"])
-        plot_confusion_matrix(y_fv, y_pred_t2, "tier2_logistic_regression", fold_num, Path(output_dir))
-        print(f"    Tier 2 (Logistic Reg):   Macro-F1={metrics_t2['macro_f1']:.4f}  Acc={metrics_t2['accuracy']:.4f}")
+        plot_confusion_matrix(
+            y_fv, y_pred_t2, "tier2_logistic_regression", fold_num, Path(output_dir)
+        )
+        print(
+            f"    Tier 2 (Logistic Reg):   Macro-F1={metrics_t2['macro_f1']:.4f}  Acc={metrics_t2['accuracy']:.4f}"
+        )
+
+        # Tier 2: Gaussian Naive Bayes
+        t2_nb = train_tier2_nb(X_ft, y_ft)
+        y_pred_t2_nb = predict_tier2_nb(t2_nb, X_fv)
+        metrics_t2_nb = evaluate_model(y_fv, y_pred_t2_nb, "tier2_naive_bayes")
+        fold_result.tier_results["tier2_naive_bayes"] = metrics_t2_nb
+        fold_macro_f1s["tier2_naive_bayes"].append(metrics_t2_nb["macro_f1"])
+        fold_accuracies["tier2_naive_bayes"].append(metrics_t2_nb["accuracy"])
+        plot_confusion_matrix(y_fv, y_pred_t2_nb, "tier2_naive_bayes", fold_num, Path(output_dir))
+        print(
+            f"    Tier 2 (Naive Bayes):    Macro-F1={metrics_t2_nb['macro_f1']:.4f}  Acc={metrics_t2_nb['accuracy']:.4f}"
+        )
 
         # Tier 3: Random Forest
         t3_rf = train_tier3_rf(X_ft, y_ft)
@@ -670,7 +644,9 @@ def run_training(
         fold_macro_f1s["tier3_random_forest"].append(metrics_t3_rf["macro_f1"])
         fold_accuracies["tier3_random_forest"].append(metrics_t3_rf["accuracy"])
         plot_confusion_matrix(y_fv, y_pred_t3_rf, "tier3_random_forest", fold_num, Path(output_dir))
-        print(f"    Tier 3 (Random Forest):  Macro-F1={metrics_t3_rf['macro_f1']:.4f}  Acc={metrics_t3_rf['accuracy']:.4f}")
+        print(
+            f"    Tier 3 (Random Forest):  Macro-F1={metrics_t3_rf['macro_f1']:.4f}  Acc={metrics_t3_rf['accuracy']:.4f}"
+        )
 
         # Tier 3: SVM
         t3_svm = train_tier3_svm(X_ft, y_ft)
@@ -680,7 +656,9 @@ def run_training(
         fold_macro_f1s["tier3_svm"].append(metrics_t3_svm["macro_f1"])
         fold_accuracies["tier3_svm"].append(metrics_t3_svm["accuracy"])
         plot_confusion_matrix(y_fv, y_pred_t3_svm, "tier3_svm", fold_num, Path(output_dir))
-        print(f"    Tier 3 (SVM):            Macro-F1={metrics_t3_svm['macro_f1']:.4f}  Acc={metrics_t3_svm['accuracy']:.4f}")
+        print(
+            f"    Tier 3 (SVM):            Macro-F1={metrics_t3_svm['macro_f1']:.4f}  Acc={metrics_t3_svm['accuracy']:.4f}"
+        )
 
         # Tier 4: XGBoost
         if HAS_XGBOOST:
@@ -692,7 +670,9 @@ def run_training(
                 fold_macro_f1s["tier4_xgboost"].append(metrics_t4["macro_f1"])
                 fold_accuracies["tier4_xgboost"].append(metrics_t4["accuracy"])
                 plot_confusion_matrix(y_fv, y_pred_t4, "tier4_xgboost", fold_num, Path(output_dir))
-                print(f"    Tier 4 (XGBoost):        Macro-F1={metrics_t4['macro_f1']:.4f}  Acc={metrics_t4['accuracy']:.4f}")
+                print(
+                    f"    Tier 4 (XGBoost):        Macro-F1={metrics_t4['macro_f1']:.4f}  Acc={metrics_t4['accuracy']:.4f}"
+                )
 
         report.fold_results.append(fold_result)
 
@@ -712,8 +692,11 @@ def run_training(
     print("\n[5/6] Applying pre-registered decision rule...")
     tier1_f1 = report.aggregate_metrics["tier1_rule_based"]["macro_f1_mean"]
 
-    learned_tiers = {k: v for k, v in report.aggregate_metrics.items()
-                     if k.startswith("tier") and k != "tier0_majority" and k != "tier1_rule_based"}
+    learned_tiers = {
+        k: v
+        for k, v in report.aggregate_metrics.items()
+        if k.startswith("tier") and k != "tier0_majority" and k != "tier1_rule_based"
+    }
 
     if learned_tiers:
         best_learned_tier = max(learned_tiers, key=lambda k: learned_tiers[k]["macro_f1_mean"])
@@ -746,8 +729,10 @@ def run_training(
     print("  " + "-" * 65)
     for tier_name in tier_names:
         m = report.aggregate_metrics[tier_name]
-        print(f"  {tier_name:<30} {m['macro_f1_mean']:>10.4f} {m['macro_f1_std']:>5.4f} "
-              f"{m['accuracy_mean']:>10.4f} {m['accuracy_std']:>5.4f}")
+        print(
+            f"  {tier_name:<30} {m['macro_f1_mean']:>10.4f} {m['macro_f1_std']:>5.4f} "
+            f"{m['accuracy_mean']:>10.4f} {m['accuracy_std']:>5.4f}"
+        )
 
     # ---- Save models ----
     print("\n[6/6] Saving models and reports...")
@@ -762,15 +747,21 @@ def run_training(
     joblib.dump(t0_final, output_path / "tier0_majority.joblib")
 
     t1_final = train_tier1(X_train_all, y_train_all, used_features)
-    joblib.dump({
-        "cv_threshold": t1_final.cv_threshold,
-        "obl_threshold": t1_final.obl_threshold,
-        "runway_threshold": t1_final.runway_threshold,
-        "feature_names": used_features,
-    }, output_path / "tier1_rule_based.joblib")
+    joblib.dump(
+        {
+            "cv_threshold": t1_final.cv_threshold,
+            "obl_threshold": t1_final.obl_threshold,
+            "runway_threshold": t1_final.runway_threshold,
+            "feature_names": used_features,
+        },
+        output_path / "tier1_rule_based.joblib",
+    )
 
     t2_final = train_tier2(X_train_all, y_train_all)
     joblib.dump(t2_final, output_path / "tier2_logistic_regression.joblib")
+
+    t2_nb_final = train_tier2_nb(X_train_all, y_train_all)
+    joblib.dump(t2_nb_final, output_path / "tier2_naive_bayes.joblib")
 
     t3_rf_final = train_tier3_rf(X_train_all, y_train_all)
     joblib.dump(t3_rf_final, output_path / "tier3_random_forest.joblib")
@@ -790,6 +781,7 @@ def run_training(
         "pre_registered_margin": report.pre_registered_margin,
         "aggregate_metrics": report.aggregate_metrics,
         "winner": report.winner,
+        "winner_artifact": WINNER_ARTIFACTS.get(report.winner, "tier3_svm.joblib"),
         "winner_reason": report.winner_reason,
         "feature_columns": used_features,
         "fold_details": [
@@ -813,6 +805,41 @@ def run_training(
     # Save human-readable report
     _write_evaluation_report(report, tier_names, output_path)
 
+    # Emit metadata.json (Phase 8 provenance: metrics, decision rule, artifacts)
+    winner_stats = report.aggregate_metrics.get(report.winner, {})
+    metadata = build_metadata(
+        model_id=f"pfp-{report.winner}",
+        family="pfp",
+        feature_columns=used_features,
+        metrics={
+            "primary": {
+                "name": "macro_f1",
+                "value": winner_stats.get("macro_f1_mean", 0.0),
+                "threshold": None,
+                "folds": report.n_folds,
+            },
+            "secondary": {
+                "accuracy": winner_stats.get("accuracy_mean", 0.0),
+                "macro_f1_std": winner_stats.get("macro_f1_std", 0.0),
+                "accuracy_std": winner_stats.get("accuracy_std", 0.0),
+            },
+        },
+        decision_rule=(
+            "winner must beat the rule-based Tier 1 by >2 points of Macro-F1; "
+            "otherwise fall back to Tier 1"
+        ),
+        framework="scikit-learn",
+        framework_version=framework_version_of("scikit-learn"),
+        artifacts=[WINNER_ARTIFACTS.get(report.winner, "tier3_svm.joblib")],
+        data_sources=[Path(input_dir) / f"{name}.parquet" for name in ("train", "val", "test")],
+        winner_reason=report.winner_reason,
+        extra={
+            "winner": report.winner,
+            "winner_artifact": WINNER_ARTIFACTS.get(report.winner, "tier3_svm.joblib"),
+        },
+    )
+    write_metadata(metadata, output_path)
+
     print(f"\n  Saved to {output_dir}/")
     for item in sorted(output_path.iterdir()):
         if item.is_file():
@@ -825,9 +852,7 @@ def run_training(
     return report
 
 
-def _write_evaluation_report(
-    report: TrainingReport, tier_names: list[str], output_path: Path
-):
+def _write_evaluation_report(report: TrainingReport, tier_names: list[str], output_path: Path):
     """Write human-readable evaluation report."""
     lines = [
         "# PFP Classifier — Evaluation Report",
@@ -862,13 +887,15 @@ def _write_evaluation_report(
             f"| {tier_name} | {f1_mean:.4f} ± {f1_std:.4f} | {acc_mean:.4f} ± {acc_std:.4f} |"
         )
 
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## Per-Fold Results",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## Per-Fold Results",
+            "",
+        ]
+    )
 
     for fr in report.fold_results:
         lines.append(f"### Fold {fr.fold}")
@@ -890,15 +917,19 @@ def _write_evaluation_report(
     # Per-class accuracy from last fold
     if report.fold_results:
         last_fold = report.fold_results[-1]
-        short_classes = [c.split("/")[0][0] + c.split("/")[1][0] + c.split("/")[2][0] for c in PFP_CLASSES]
-        lines.extend([
-            "---",
-            "",
-            "## Per-Class Accuracy (Last Fold)",
-            "",
-            "| Tier | " + " | ".join(PFP_CLASSES) + " |",
-            "|------|" + "|".join(["------"] * len(PFP_CLASSES)) + "|",
-        ])
+        short_classes = [
+            c.split("/")[0][0] + c.split("/")[1][0] + c.split("/")[2][0] for c in PFP_CLASSES
+        ]
+        lines.extend(
+            [
+                "---",
+                "",
+                "## Per-Class Accuracy (Last Fold)",
+                "",
+                "| Tier | " + " | ".join(PFP_CLASSES) + " |",
+                "|------|" + "|".join(["------"] * len(PFP_CLASSES)) + "|",
+            ]
+        )
         for tier_name in tier_names:
             metrics = last_fold.tier_results.get(tier_name, {})
             if isinstance(metrics, dict) and "per_class_accuracy" in metrics:
@@ -914,26 +945,23 @@ def _write_evaluation_report(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Odin ML — PFP Classifier Training (Tier 0-4)"
+    parser = argparse.ArgumentParser(description="Odin ML — PFP Classifier Training (Tier 0-4)")
+    parser.add_argument(
+        "--input",
+        default="datasets/engineered/",
+        help="Input directory with engineered data (default: datasets/engineered/)",
     )
     parser.add_argument(
-        "--input", default="datasets/engineered/",
-        help="Input directory with engineered data (default: datasets/engineered/)"
+        "--output",
+        default="models/pfp/",
+        help="Output directory for trained models (default: models/pfp/)",
     )
     parser.add_argument(
-        "--output", default="models/pfp/",
-        help="Output directory for trained models (default: models/pfp/)"
+        "--temporal-folds", default=None, help="Path to temporal_folds.json (default: auto-detect)"
     )
-    parser.add_argument(
-        "--temporal-folds", default=None,
-        help="Path to temporal_folds.json (default: auto-detect)"
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42,
-        help="Random seed (default: 42)"
-    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
 
     args = parser.parse_args()
     run_training(

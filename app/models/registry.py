@@ -12,10 +12,31 @@ from app.models.artifact_classes import (
 from app.models.loader import ModelLoader
 
 PFP_MODULE = "pfp"
-PFP_ARTIFACT = "tier3_svm.joblib"
 FORECASTER_MODULE = "forecaster"
 ANOMALY_MODULE = "anomaly"
 ANOMALY_ARTIFACT = "anomaly_detector.joblib"
+
+PFP_WINNER_ARTIFACTS = {
+    "tier0_majority": "tier0_majority.joblib",
+    "tier1_rule_based": "tier1_rule_based.joblib",
+    "tier2_logistic_regression": "tier2_logistic_regression.joblib",
+    "tier2_naive_bayes": "tier2_naive_bayes.joblib",
+    "tier3_random_forest": "tier3_random_forest.joblib",
+    "tier3_svm": "tier3_svm.joblib",
+    "tier4_xgboost": "tier4_xgboost.joblib",
+}
+
+
+def _resolve_pfp_artifact(evaluation: dict) -> str:
+    """Resolve the pfp winner artifact filename from evaluation.json."""
+    winner = evaluation.get("winner")
+    artifact = evaluation.get("winner_artifact")
+    if artifact and isinstance(artifact, str) and artifact.endswith(".joblib"):
+        return artifact
+    if winner in PFP_WINNER_ARTIFACTS:
+        return PFP_WINNER_ARTIFACTS[winner]
+    return "tier3_svm.joblib"
+
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +57,9 @@ def _resolve_forecaster_artifact(evaluation: dict, output_dir) -> tuple[str, Any
         artifact = "tier2_random_forest.joblib"
         model = ModelLoader().load_joblib(FORECASTER_MODULE, artifact)
         return artifact, model
-    # Statsmodels ARIMA winner (pooled, user-normalized forecaster)
-    if winner == "tier3_arima":
-        artifact = "tier3_arima.joblib"
+    # Statsmodels pooled forecaster winner (ARIMA/SARIMA; user-normalized pool)
+    if winner in ("tier3_arima", "tier3_sarima"):
+        artifact = f"{winner}.joblib"
         model = ModelLoader().load_joblib(FORECASTER_MODULE, artifact)
         return artifact, model
     # PyTorch winner (tier3_gru, tier3_lstm, tier3_bilstm)
@@ -78,7 +99,7 @@ class ModelRegistry:
         self.anomaly: ModuleModel | None = None
 
     def load_all(self) -> None:
-        self.pfp = self._load_optional(PFP_MODULE, PFP_ARTIFACT)
+        self.pfp = self._load_optional(PFP_MODULE, _resolve_pfp_artifact(self._pfp_evaluation()))
         try:
             self.forecaster = self._load_forecaster()
         except FileNotFoundError as exc:
@@ -89,6 +110,12 @@ class ModelRegistry:
         except FileNotFoundError as exc:
             logger.warning("anomaly artifacts not found; skipping: %s", exc)
             self.anomaly = None
+
+    def _pfp_evaluation(self) -> dict:
+        try:
+            return self.loader.load_json(PFP_MODULE, "evaluation.json")
+        except FileNotFoundError:
+            return {}
 
     def _load_optional(self, module: str, artifact: str) -> ModuleModel | None:
         try:

@@ -1,0 +1,644 @@
+{
+  "timestamp": "2026-09-08T09:13:23.075517",
+  "n_folds": 5,
+  "pre_registered_margin": 0.02,
+  "aggregate_metrics": {
+    "tier0_majority": {
+      "macro_f1_mean": 0.03632478632478633,
+      "macro_f1_std": 0.0,
+      "accuracy_mean": 0.17,
+      "accuracy_std": 0.0
+    },
+    "tier1_rule_based": {
+      "macro_f1_mean": 0.06948698474303683,
+      "macro_f1_std": 0.0033858118637233926,
+      "accuracy_mean": 0.10388888888888889,
+      "accuracy_std": 0.002277100170213244
+    },
+    "tier2_logistic_regression": {
+      "macro_f1_mean": 0.6656478871586822,
+      "macro_f1_std": 0.017039844534130367,
+      "accuracy_mean": 0.6454444444444445,
+      "accuracy_std": 0.01627464892189275
+    },
+    "tier2_naive_bayes": {
+      "macro_f1_mean": 0.49749569820953676,
+      "macro_f1_std": 0.0028122624030248672,
+      "accuracy_mean": 0.4725555555555555,
+      "accuracy_std": 0.0023726840560069624
+    },
+    "tier3_random_forest": {
+      "macro_f1_mean": 0.6584666887753677,
+      "macro_f1_std": 0.028191026991877362,
+      "accuracy_mean": 0.6547777777777778,
+      "accuracy_std": 0.027861208042370432
+    },
+    "tier3_svm": {
+      "macro_f1_mean": 0.6744638359373892,
+      "macro_f1_std": 0.015566592907897367,
+      "accuracy_mean": 0.6769999999999999,
+      "accuracy_std": 0.014153479701272077
+    }
+  },
+  "winner": "tier3_svm",
+  "winner_artifact": "tier3_svm.joblib",
+  "winner_reason": "Best learned model (tier3_svm) beats Tier 1 by 0.6050 (> 0.02 margin)",
+  "feature_columns": [
+    "income_stability_cv",
+    "obligation_ratio",
+    "savings_rate",
+    "debt_to_income",
+    "discretionary_ratio",
+    "income_trend",
+    "expense_trend",
+    "volatility_index",
+    "category_entropy",
+    "transaction_frequency",
+    "avg_transaction_size",
+    "income_regularity",
+    "expense_regularity",
+    "income_expense_gap",
+    "essential_income_ratio",
+    "month_sin",
+    "month_cos",
+    "income_volatility_interaction",
+    "obligation_volatility_interaction"
+  ],
+  "fold_details": [
+    {
+      "fold": 1,
+      "train_months": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "test_months": [
+        8
+      ],
+      "n_train_personas": 8400,
+      "n_test_personas": 1800,
+      "tier_results": {
+        "tier0_majority": {
+          "tier": "tier0_majority",
+          "macro_f1": 0.03632478632478633,
+          "accuracy": 0.17,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.0,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.0,
+            "Stable/Flexible/At-Risk": 1.0,
+            "Variable/Obligated/Tolerant": 0.0,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.0,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_rule_based": {
+          "tier": "tier1_rule_based",
+          "macro_f1": 0.07317805019130473,
+          "accuracy": 0.10777777777777778,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.07796610169491526,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.08387096774193549,
+            "Stable/Flexible/At-Risk": 0.0,
+            "Variable/Obligated/Tolerant": 0.66,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.37341772151898733,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_thresholds": {
+          "cv_threshold": 0.05,
+          "obl_threshold": 0.8100000000000005,
+          "runway_threshold": 3.0
+        },
+        "tier2_logistic_regression": {
+          "tier": "tier2_logistic_regression",
+          "macro_f1": 0.6386431404968628,
+          "accuracy": 0.6211111111111111,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.4440677966101695,
+            "Stable/Obligated/At-Risk": 0.92,
+            "Stable/Flexible/Tolerant": 0.8903225806451613,
+            "Stable/Flexible/At-Risk": 0.45098039215686275,
+            "Variable/Obligated/Tolerant": 0.42,
+            "Variable/Obligated/At-Risk": 0.5504885993485342,
+            "Variable/Flexible/Tolerant": 0.9113924050632911,
+            "Variable/Flexible/At-Risk": 0.7060931899641577
+          }
+        },
+        "tier2_naive_bayes": {
+          "tier": "tier2_naive_bayes",
+          "macro_f1": 0.4971712750313787,
+          "accuracy": 0.4722222222222222,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.4033898305084746,
+            "Stable/Obligated/At-Risk": 0.4533333333333333,
+            "Stable/Flexible/Tolerant": 0.9161290322580645,
+            "Stable/Flexible/At-Risk": 0.3300653594771242,
+            "Variable/Obligated/Tolerant": 0.8333333333333334,
+            "Variable/Obligated/At-Risk": 0.3289902280130293,
+            "Variable/Flexible/Tolerant": 0.4620253164556962,
+            "Variable/Flexible/At-Risk": 0.4336917562724014
+          }
+        },
+        "tier3_random_forest": {
+          "tier": "tier3_random_forest",
+          "macro_f1": 0.6168272092993863,
+          "accuracy": 0.6138888888888889,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.7423728813559322,
+            "Stable/Obligated/At-Risk": 0.44666666666666666,
+            "Stable/Flexible/Tolerant": 0.9419354838709677,
+            "Stable/Flexible/At-Risk": 0.20915032679738563,
+            "Variable/Obligated/Tolerant": 0.8133333333333334,
+            "Variable/Obligated/At-Risk": 0.749185667752443,
+            "Variable/Flexible/Tolerant": 0.6139240506329114,
+            "Variable/Flexible/At-Risk": 0.5734767025089605
+          }
+        },
+        "tier3_svm": {
+          "tier": "tier3_svm",
+          "macro_f1": 0.654124092945493,
+          "accuracy": 0.6577777777777778,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.6610169491525424,
+            "Stable/Obligated/At-Risk": 0.5,
+            "Stable/Flexible/Tolerant": 0.9225806451612903,
+            "Stable/Flexible/At-Risk": 0.42483660130718953,
+            "Variable/Obligated/Tolerant": 0.9466666666666667,
+            "Variable/Obligated/At-Risk": 0.8403908794788274,
+            "Variable/Flexible/Tolerant": 0.379746835443038,
+            "Variable/Flexible/At-Risk": 0.6487455197132617
+          }
+        }
+      }
+    },
+    {
+      "fold": 2,
+      "train_months": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "test_months": [
+        9
+      ],
+      "n_train_personas": 8400,
+      "n_test_personas": 1800,
+      "tier_results": {
+        "tier0_majority": {
+          "tier": "tier0_majority",
+          "macro_f1": 0.03632478632478633,
+          "accuracy": 0.17,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.0,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.0,
+            "Stable/Flexible/At-Risk": 1.0,
+            "Variable/Obligated/Tolerant": 0.0,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.0,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_rule_based": {
+          "tier": "tier1_rule_based",
+          "macro_f1": 0.07400932038966457,
+          "accuracy": 0.10444444444444445,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.06440677966101695,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.10967741935483871,
+            "Stable/Flexible/At-Risk": 0.0,
+            "Variable/Obligated/Tolerant": 0.6466666666666666,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.34810126582278483,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_thresholds": {
+          "cv_threshold": 0.05,
+          "obl_threshold": 0.8100000000000005,
+          "runway_threshold": 3.0
+        },
+        "tier2_logistic_regression": {
+          "tier": "tier2_logistic_regression",
+          "macro_f1": 0.65422635610098,
+          "accuracy": 0.6338888888888888,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.4271186440677966,
+            "Stable/Obligated/At-Risk": 0.9533333333333334,
+            "Stable/Flexible/Tolerant": 0.9096774193548387,
+            "Stable/Flexible/At-Risk": 0.477124183006536,
+            "Variable/Obligated/Tolerant": 0.4866666666666667,
+            "Variable/Obligated/At-Risk": 0.5504885993485342,
+            "Variable/Flexible/Tolerant": 0.930379746835443,
+            "Variable/Flexible/At-Risk": 0.7025089605734767
+          }
+        },
+        "tier2_naive_bayes": {
+          "tier": "tier2_naive_bayes",
+          "macro_f1": 0.4956212281781972,
+          "accuracy": 0.4711111111111111,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.423728813559322,
+            "Stable/Obligated/At-Risk": 0.4066666666666667,
+            "Stable/Flexible/Tolerant": 0.9096774193548387,
+            "Stable/Flexible/At-Risk": 0.32679738562091504,
+            "Variable/Obligated/Tolerant": 0.8266666666666667,
+            "Variable/Obligated/At-Risk": 0.31921824104234525,
+            "Variable/Flexible/Tolerant": 0.4810126582278481,
+            "Variable/Flexible/At-Risk": 0.44086021505376344
+          }
+        },
+        "tier3_random_forest": {
+          "tier": "tier3_random_forest",
+          "macro_f1": 0.6383475033485727,
+          "accuracy": 0.6355555555555555,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.7593220338983051,
+            "Stable/Obligated/At-Risk": 0.4666666666666667,
+            "Stable/Flexible/Tolerant": 0.9225806451612903,
+            "Stable/Flexible/At-Risk": 0.22549019607843138,
+            "Variable/Obligated/Tolerant": 0.7666666666666667,
+            "Variable/Obligated/At-Risk": 0.7882736156351792,
+            "Variable/Flexible/Tolerant": 0.6455696202531646,
+            "Variable/Flexible/At-Risk": 0.6415770609318996
+          }
+        },
+        "tier3_svm": {
+          "tier": "tier3_svm",
+          "macro_f1": 0.6631153399859242,
+          "accuracy": 0.6655555555555556,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.6677966101694915,
+            "Stable/Obligated/At-Risk": 0.5266666666666666,
+            "Stable/Flexible/Tolerant": 0.9290322580645162,
+            "Stable/Flexible/At-Risk": 0.4477124183006536,
+            "Variable/Obligated/Tolerant": 0.9133333333333333,
+            "Variable/Obligated/At-Risk": 0.8338762214983714,
+            "Variable/Flexible/Tolerant": 0.3924050632911392,
+            "Variable/Flexible/At-Risk": 0.6666666666666666
+          }
+        }
+      }
+    },
+    {
+      "fold": 3,
+      "train_months": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "test_months": [
+        10
+      ],
+      "n_train_personas": 8400,
+      "n_test_personas": 1800,
+      "tier_results": {
+        "tier0_majority": {
+          "tier": "tier0_majority",
+          "macro_f1": 0.03632478632478633,
+          "accuracy": 0.17,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.0,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.0,
+            "Stable/Flexible/At-Risk": 1.0,
+            "Variable/Obligated/Tolerant": 0.0,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.0,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_rule_based": {
+          "tier": "tier1_rule_based",
+          "macro_f1": 0.06710006660939817,
+          "accuracy": 0.10111111111111111,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.04745762711864407,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.09032258064516129,
+            "Stable/Flexible/At-Risk": 0.0,
+            "Variable/Obligated/Tolerant": 0.6466666666666666,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.36075949367088606,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_thresholds": {
+          "cv_threshold": 0.05,
+          "obl_threshold": 0.8100000000000005,
+          "runway_threshold": 3.0
+        },
+        "tier2_logistic_regression": {
+          "tier": "tier2_logistic_regression",
+          "macro_f1": 0.6713556410931534,
+          "accuracy": 0.6477777777777778,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.43728813559322033,
+            "Stable/Obligated/At-Risk": 0.9466666666666667,
+            "Stable/Flexible/Tolerant": 0.9161290322580645,
+            "Stable/Flexible/At-Risk": 0.45751633986928103,
+            "Variable/Obligated/Tolerant": 0.5933333333333334,
+            "Variable/Obligated/At-Risk": 0.6123778501628665,
+            "Variable/Flexible/Tolerant": 0.8860759493670886,
+            "Variable/Flexible/At-Risk": 0.7025089605734767
+          }
+        },
+        "tier2_naive_bayes": {
+          "tier": "tier2_naive_bayes",
+          "macro_f1": 0.49546682050626006,
+          "accuracy": 0.4711111111111111,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.423728813559322,
+            "Stable/Obligated/At-Risk": 0.4066666666666667,
+            "Stable/Flexible/Tolerant": 0.8838709677419355,
+            "Stable/Flexible/At-Risk": 0.32679738562091504,
+            "Variable/Obligated/Tolerant": 0.8333333333333334,
+            "Variable/Obligated/At-Risk": 0.3289902280130293,
+            "Variable/Flexible/Tolerant": 0.46835443037974683,
+            "Variable/Flexible/At-Risk": 0.44802867383512546
+          }
+        },
+        "tier3_random_forest": {
+          "tier": "tier3_random_forest",
+          "macro_f1": 0.6620253129131466,
+          "accuracy": 0.6577777777777778,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.7627118644067796,
+            "Stable/Obligated/At-Risk": 0.4533333333333333,
+            "Stable/Flexible/Tolerant": 0.9354838709677419,
+            "Stable/Flexible/At-Risk": 0.28431372549019607,
+            "Variable/Obligated/Tolerant": 0.7266666666666667,
+            "Variable/Obligated/At-Risk": 0.8078175895765473,
+            "Variable/Flexible/Tolerant": 0.7468354430379747,
+            "Variable/Flexible/At-Risk": 0.6594982078853047
+          }
+        },
+        "tier3_svm": {
+          "tier": "tier3_svm",
+          "macro_f1": 0.6707714008987469,
+          "accuracy": 0.6761111111111111,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.688135593220339,
+            "Stable/Obligated/At-Risk": 0.5066666666666667,
+            "Stable/Flexible/Tolerant": 0.9161290322580645,
+            "Stable/Flexible/At-Risk": 0.48366013071895425,
+            "Variable/Obligated/Tolerant": 0.92,
+            "Variable/Obligated/At-Risk": 0.8338762214983714,
+            "Variable/Flexible/Tolerant": 0.3924050632911392,
+            "Variable/Flexible/At-Risk": 0.6881720430107527
+          }
+        }
+      }
+    },
+    {
+      "fold": 4,
+      "train_months": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "test_months": [
+        11
+      ],
+      "n_train_personas": 8400,
+      "n_test_personas": 1800,
+      "tier_results": {
+        "tier0_majority": {
+          "tier": "tier0_majority",
+          "macro_f1": 0.03632478632478633,
+          "accuracy": 0.17,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.0,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.0,
+            "Stable/Flexible/At-Risk": 1.0,
+            "Variable/Obligated/Tolerant": 0.0,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.0,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_rule_based": {
+          "tier": "tier1_rule_based",
+          "macro_f1": 0.06603904895119345,
+          "accuracy": 0.10388888888888889,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.04406779661016949,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.07741935483870968,
+            "Stable/Flexible/At-Risk": 0.0,
+            "Variable/Obligated/Tolerant": 0.6666666666666666,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.3924050632911392,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_thresholds": {
+          "cv_threshold": 0.05,
+          "obl_threshold": 0.8100000000000005,
+          "runway_threshold": 3.0
+        },
+        "tier2_logistic_regression": {
+          "tier": "tier2_logistic_regression",
+          "macro_f1": 0.6785254511570298,
+          "accuracy": 0.6583333333333333,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.4610169491525424,
+            "Stable/Obligated/At-Risk": 0.96,
+            "Stable/Flexible/Tolerant": 0.9290322580645162,
+            "Stable/Flexible/At-Risk": 0.4477124183006536,
+            "Variable/Obligated/Tolerant": 0.6266666666666667,
+            "Variable/Obligated/At-Risk": 0.6579804560260586,
+            "Variable/Flexible/Tolerant": 0.8417721518987342,
+            "Variable/Flexible/At-Risk": 0.6989247311827957
+          }
+        },
+        "tier2_naive_bayes": {
+          "tier": "tier2_naive_bayes",
+          "macro_f1": 0.4962278797581199,
+          "accuracy": 0.4711111111111111,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.423728813559322,
+            "Stable/Obligated/At-Risk": 0.4266666666666667,
+            "Stable/Flexible/Tolerant": 0.8903225806451613,
+            "Stable/Flexible/At-Risk": 0.3333333333333333,
+            "Variable/Obligated/Tolerant": 0.82,
+            "Variable/Obligated/At-Risk": 0.31921824104234525,
+            "Variable/Flexible/Tolerant": 0.46835443037974683,
+            "Variable/Flexible/At-Risk": 0.4444444444444444
+          }
+        },
+        "tier3_random_forest": {
+          "tier": "tier3_random_forest",
+          "macro_f1": 0.6795431201000426,
+          "accuracy": 0.6733333333333333,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.8101694915254237,
+            "Stable/Obligated/At-Risk": 0.5133333333333333,
+            "Stable/Flexible/Tolerant": 0.9483870967741935,
+            "Stable/Flexible/At-Risk": 0.2581699346405229,
+            "Variable/Obligated/Tolerant": 0.7,
+            "Variable/Obligated/At-Risk": 0.8501628664495114,
+            "Variable/Flexible/Tolerant": 0.759493670886076,
+            "Variable/Flexible/At-Risk": 0.6594982078853047
+          }
+        },
+        "tier3_svm": {
+          "tier": "tier3_svm",
+          "macro_f1": 0.6883090171292604,
+          "accuracy": 0.6916666666666667,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.7152542372881356,
+            "Stable/Obligated/At-Risk": 0.5866666666666667,
+            "Stable/Flexible/Tolerant": 0.9161290322580645,
+            "Stable/Flexible/At-Risk": 0.4869281045751634,
+            "Variable/Obligated/Tolerant": 0.88,
+            "Variable/Obligated/At-Risk": 0.8697068403908795,
+            "Variable/Flexible/Tolerant": 0.4177215189873418,
+            "Variable/Flexible/At-Risk": 0.6810035842293907
+          }
+        }
+      }
+    },
+    {
+      "fold": 5,
+      "train_months": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "test_months": [
+        12
+      ],
+      "n_train_personas": 8400,
+      "n_test_personas": 1800,
+      "tier_results": {
+        "tier0_majority": {
+          "tier": "tier0_majority",
+          "macro_f1": 0.03632478632478633,
+          "accuracy": 0.17,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.0,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.0,
+            "Stable/Flexible/At-Risk": 1.0,
+            "Variable/Obligated/Tolerant": 0.0,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.0,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_rule_based": {
+          "tier": "tier1_rule_based",
+          "macro_f1": 0.0671084375736232,
+          "accuracy": 0.10222222222222223,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.030508474576271188,
+            "Stable/Obligated/At-Risk": 0.0,
+            "Stable/Flexible/Tolerant": 0.1032258064516129,
+            "Stable/Flexible/At-Risk": 0.0,
+            "Variable/Obligated/Tolerant": 0.5533333333333333,
+            "Variable/Obligated/At-Risk": 0.0,
+            "Variable/Flexible/Tolerant": 0.4810126582278481,
+            "Variable/Flexible/At-Risk": 0.0
+          }
+        },
+        "tier1_thresholds": {
+          "cv_threshold": 0.05,
+          "obl_threshold": 0.8200000000000005,
+          "runway_threshold": 3.0
+        },
+        "tier2_logistic_regression": {
+          "tier": "tier2_logistic_regression",
+          "macro_f1": 0.6854888469453848,
+          "accuracy": 0.6661111111111111,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.4915254237288136,
+            "Stable/Obligated/At-Risk": 0.94,
+            "Stable/Flexible/Tolerant": 0.9354838709677419,
+            "Stable/Flexible/At-Risk": 0.4477124183006536,
+            "Variable/Obligated/Tolerant": 0.64,
+            "Variable/Obligated/At-Risk": 0.6938110749185668,
+            "Variable/Flexible/Tolerant": 0.8291139240506329,
+            "Variable/Flexible/At-Risk": 0.6845878136200717
+          }
+        },
+        "tier2_naive_bayes": {
+          "tier": "tier2_naive_bayes",
+          "macro_f1": 0.5029912875737281,
+          "accuracy": 0.4772222222222222,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.43050847457627117,
+            "Stable/Obligated/At-Risk": 0.44666666666666666,
+            "Stable/Flexible/Tolerant": 0.8709677419354839,
+            "Stable/Flexible/At-Risk": 0.3366013071895425,
+            "Variable/Obligated/Tolerant": 0.8333333333333334,
+            "Variable/Obligated/At-Risk": 0.3289902280130293,
+            "Variable/Flexible/Tolerant": 0.46835443037974683,
+            "Variable/Flexible/At-Risk": 0.4551971326164875
+          }
+        },
+        "tier3_random_forest": {
+          "tier": "tier3_random_forest",
+          "macro_f1": 0.6955902982156906,
+          "accuracy": 0.6933333333333334,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.8305084745762712,
+            "Stable/Obligated/At-Risk": 0.43333333333333335,
+            "Stable/Flexible/Tolerant": 0.9483870967741935,
+            "Stable/Flexible/At-Risk": 0.35294117647058826,
+            "Variable/Obligated/Tolerant": 0.74,
+            "Variable/Obligated/At-Risk": 0.8664495114006515,
+            "Variable/Flexible/Tolerant": 0.759493670886076,
+            "Variable/Flexible/At-Risk": 0.6666666666666666
+          }
+        },
+        "tier3_svm": {
+          "tier": "tier3_svm",
+          "macro_f1": 0.6959993287275219,
+          "accuracy": 0.6938888888888889,
+          "per_class_accuracy": {
+            "Stable/Obligated/Tolerant": 0.7220338983050848,
+            "Stable/Obligated/At-Risk": 0.5666666666666667,
+            "Stable/Flexible/Tolerant": 0.9225806451612903,
+            "Stable/Flexible/At-Risk": 0.4869281045751634,
+            "Variable/Obligated/Tolerant": 0.86,
+            "Variable/Obligated/At-Risk": 0.8566775244299675,
+            "Variable/Flexible/Tolerant": 0.4936708860759494,
+            "Variable/Flexible/At-Risk": 0.6774193548387096
+          }
+        }
+      }
+    }
+  ]
+}
