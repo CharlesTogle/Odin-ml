@@ -1,7 +1,7 @@
 {
-  "model_id": "budget-v1.0.0",
+  "model_id": "budget-scipy_linprog",
   "family": "budget",
-  "created_at": "2026-09-07T00:00:00Z",
+  "created_at": "2026-09-08T00:00:00Z",
   "training_commit": "<git sha of config code>",
   "training_data_hash": "<sha256 of config or test fixture>",
   "framework": "scipy",
@@ -11,10 +11,14 @@
   "feature_columns": [],
   "metrics": {
     "primary": {"name": "constraint_satisfaction_rate", "value": 1.0, "folds": null},
-    "secondary": {"budget_utilization_rate": 1.0, "deviation_from_user_preferences": 0.0}
+    "secondary": {"budget_utilization_rate": 1.0, "mean_deviation": 0.0}
   },
   "decision_rule": "LP must meet all hard constraints; prefer minimal deviation from user targets",
+  "winner": "scipy_linprog",
+  "winner_artifact": "budget_config.json",
   "winner_reason": "scipy.linprog (exact, fast) selected as current v1 per model candidate roster",
+  "winner_params": {"method": "highs", "eps": 1e-9},
+  "threshold": null,
   "fitted": false,
   "serving_note": "loaded by app/services/budget_service.py"
 }

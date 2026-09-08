@@ -10,9 +10,18 @@ the "model" is the constraint formulation + configuration.
 
 ## Target artifact
 
-- `budget_config.json` + `metadata.json` — the current v1 configuration (`app/services/budget_service.py`).
+- `budget_config.json` — solver + constraint-contract snapshot (current v1 formulation pins
+  `app/services/budget_service.py`).
+- `metadata.json` — winner contract for the deterministic formulation (`scipy_linprog`).
 
-## Skeleton
+## Committed state
 
-- `metadata.example.json` — schema template; copy to `metadata.json` on promotion.
-- `.gitkeep` — keeps the empty family dir tracked until the config lands.
+- `evaluation.json` — LP results over 600 synthetic personas (constraint satisfaction,
+  utilization, deviation, feasibility breakdown); source of truth for the report.
+- `evaluation_report.md` — regenerated from `evaluation.json`.
+
+The evaluation is deterministic and fast; rebuild artifacts with:
+
+```bash
+python training/scripts/regenerate_artifacts.py
+```

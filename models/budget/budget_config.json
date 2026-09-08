@@ -1,0 +1,25 @@
+{
+  "method": "highs",
+  "artifact": "models/budget/budget_config.json",
+  "description": "Deterministic LP formulation snapshot (Budget Optimizer MDD v1.0). The optimizer code lives in app/services/budget_service.py; this config pins the solver and the constraint/monitoring contract.",
+  "decision_variables": [
+    "allocation x_i",
+    "deviation d_i per category"
+  ],
+  "objective": "minimize sum(w_i * d_i)  # weighted deviation from user targets",
+  "hard_constraints": [
+    "sum(x) == available_funds",
+    "LOCKED: floor == ceiling == current_spend",
+    "PROTECTED: x >= max(floor, current_spend)",
+    "FREE: floor <= x <= ceiling",
+    "d >= |x - target|"
+  ],
+  "eps": 1e-09,
+  "feasibility_states": [
+    "FEASIBLE",
+    "REDUCED",
+    "INFEASIBLE"
+  ],
+  "source_data": "training/synth/personas.parquet",
+  "evaluation": "models/budget/evaluation.json"
+}
