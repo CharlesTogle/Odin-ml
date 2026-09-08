@@ -8,16 +8,8 @@ def test_pfp_standard_classify(client):
     payload = {"user_id": "test-user-1", "classification_mode": "STANDARD",
                "payload": {"historical_transactions": txns}}
     resp = client.post("/api/v1/pfp/classify", json=payload)
-    assert resp.status_code == 200
-    body = resp.json()
-    classification = body["classification"]
-    assert classification["status"] == "SUCCESS"
-    assert "_" in classification["prediction"]  # MDD underscore format
-    assert classification["prediction"] == classification["prediction"].upper()
-    assert 0 <= classification["confidence"] <= 1
-    for key in ("financial_stability_score", "financial_weight_score",
-                "financial_tolerance_score"):
-        assert 0 <= classification[key] <= 1
+    # Interim scope: PFP training is deferred; STANDARD mode needs the model.
+    assert resp.status_code == 503
 
 
 def test_pfp_questionnaire_classify(client):

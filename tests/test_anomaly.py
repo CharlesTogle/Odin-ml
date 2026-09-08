@@ -29,3 +29,19 @@ def test_anomaly_detect_batch(client):
     results = resp.json()["results"]
     assert len(results) == 2
     assert all("anomalous_transactions" in r for r in results)
+
+
+def test_anomaly_overspending_detects_excess(client):
+    txns = load_transactions(n=60)
+    low_budget = 1.0
+    payload = {
+        "user_id": "test-user-3",
+        "detection_type": "OVERSPENDING",
+        "transactions": txns,
+        "budget_allocations": [{"category_id": "food", "budget_amount": low_budget}],
+    }
+    resp = client.post("/api/v1/anomaly/detect", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert any(o["category"] == "food" for o in body["overspending_transactions"])
+    assert body["status"] in ("SUCCESS", "FALLBACK")
