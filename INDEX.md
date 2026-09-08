@@ -63,8 +63,7 @@ Pytest coverage for the serving API (health, PFP, forecast, anomaly, budget). Se
 ## models/
 
 Canonical home for **new-scope** final model artifacts, each with `metadata.json`
-(schema in `models/README.md`). Old-scope winner artifacts are NOT moved and stay under
-`training/figures/models/`.
+(schema in `models/README.md`).
 
 | Path | Purpose |
 | :--- | :--- |
@@ -86,7 +85,6 @@ The model development pipeline. Large generated artifacts are gitignored; script
 | `training/figures/` | EDA plots and `eda_report.md`. |
 | `training/datasets/` | Processed/engineered feature matrices (gitignored). |
 | `training/synth/` | Generated personas and transactions (gitignored). |
-| `training/models/` | Trained model artifacts: `pfp/`, `forecaster/`, `anomaly/` (gitignored). |
 
 ## docs/
 

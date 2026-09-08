@@ -13,13 +13,14 @@ Python microservice for machine learning APIs and inference, plus the complete m
 | `training/docs/phases/` | Model development runbooks (Phase 7 evaluation through 10 monitoring) |
 | `training/datasets/` | Processed + engineered feature matrices (Parquet, gitignored) |
 | `training/synth/` | Generated personas and transactions (Parquet, gitignored) |
-| `training/models/` | Trained model artifacts (joblib, gitignored) |
+| `training/models/` | Intermediate model checkpoints (joblib, gitignored) |
 | `docs/models/` | RRL-grounded model candidate roster + model-lifecycle guidance |
 | `training/figures/` | EDA plots and analysis outputs (gitignored) |
 
-> **Model artifacts:** the top-level `models/` directory is the target for the **new scope**
-> (each final model committed with `metadata.json`). The previous scope's winner artifacts
-> remain in `training/figures/models/` and are **not** moved.
+> **Model artifacts:** the top-level `models/` directory is the canonical home for **final**
+> model artifacts — every family is committed with `evaluation.json`,
+> `evaluation_report.md`, and `metadata.json` (winner contract documented in
+> `models/README.md`). Training lives in `training/` as scripts + docs only.
 
 > **New contributor?** Start with `docs/models/TEAMMATE-GUIDE.md` — the trusted path for
 > humans and AI agents: decided model scope, per-family training runbooks, CPU/GPU toggles,
@@ -86,7 +87,7 @@ python training/scripts/eda.py \
   --seed 42
 ```
 
-Training (each model reads its own feature matrix and writes `training/models/`):
+Training (each model reads its own feature matrix and writes `models/<family>/`):
 
 ```bash
 python training/scripts/train_pfp.py
@@ -259,6 +260,5 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 ## Recommended Next Steps
 
 - Add per-module `Dockerfile` + `docker-compose.yml` (ports 8000–8005) matching `../Odin-Paper/docs/ml/1_problem-statement/deployment-architecture.md` v1.1
-- Add model artifact versioning (training-data hash + feature columns) to `training/models/*/metadata.json`
 - Wire the Budget Optimizer to forecast + PFP outputs (end-to-end `/api/v1/analyze`)
 - Persist prediction history for `/user/{id}/history` and `/latest` endpoints

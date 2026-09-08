@@ -1,6 +1,7 @@
 # Phase 8 — Model Selection & Versioning
 
-**Status:** Pending (scaffolded; no new-scope selection made yet).
+**Status:** Partial (selection + versioning committed for `pfp`, `forecaster`, `anomaly`;
+budget is a deterministic LP pinned in `models/budget/`).
 
 ## Purpose
 
@@ -21,12 +22,13 @@ servable, with full provenance.
 - SemVer-style `model_id`, e.g. `pfp-v1.0.0`, isolated per family.
 - `training_commit` + `training_data_hash` are mandatory in `metadata.json` so any artifact can
   be reproduced.
-- Old-scope artifacts are **not** versioned forward; they stay under
-  `training/figures/models/` for reference and are superseded by new-scope `models/`.
+- The winner contract (`winner`, `winner_artifact`, `winner_params`, `threshold`) is uniform
+  across families and is what `app/models/registry.py` resolves at serve time — no code change
+  is needed to swap a family's winner.
 
 ## Promotions
 
-- Promotion to **release** = artifact committed in `models/<family>/` + `metadata.json` + 
+- Promotion to **release** = artifact committed in `models/<family>/` + `metadata.json` +
   `evaluation_report.md` present.
-- Serving layer (`app/models/registry.py`) reads `metadata.json`; growing the registry is a
-  code change gated by the same acceptance criteria.
+- Serving layer (`app/models/registry.py`) reads `metadata.json`; the winner contract makes
+  adding/modifying/removing a family's winner a metadata change rather than a code change.

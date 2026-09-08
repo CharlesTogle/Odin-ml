@@ -57,7 +57,7 @@ Odin-ML/
 | `INDEX.md` | Master index. Authoritative navigation for all files. |
 | `README.md` | Project overview, setup, pipeline, and usage. |
 | `app/` | FastAPI service code. Entry point: `app/main.py`. |
-| `models/` | Final model artifacts + `metadata.json` for the new scope (old-scope winners stay in `training/figures/models/`). |
+| `models/` | Final model artifacts + `metadata.json` for the new scope. |
 | `training/` | Model training pipeline (scripts, datasets, artifacts). |
 | `training/docs/` | ML design documents (data collection, EDA, dimension discovery) + `phases/` runbooks (7–10). |
 | `tests/` | Pytest coverage for the service. |
@@ -118,7 +118,7 @@ Use the format and conventions in `docs/standards/git-commit-standards.md`. This
 ## Important Gotchas
 
 - Large generated artifacts (`training/datasets/`, `training/synth/`, `training/models/`, `training/figures/`) are gitignored. Only scripts, docs, and committed evaluation reports are tracked.
-- The **top-level `models/` is NOT gitignored** — it is the canonical home for new-scope FINAL model artifacts + `metadata.json`. Old-scope winner artifacts stay in `training/figures/models/`.
+- The **top-level `models/` is NOT gitignored** — it is the canonical home for new-scope FINAL model artifacts + `metadata.json`.
 - New-scope evaluation reports and winners land in top-level `models/<family>/` (committed, with `metadata.json`); containerization and CI/CD are still pending.
 - `app/core/config.py` holds the service version; keep it in sync with release changes.
 - The frontend standards in the main `odin` repository do not apply here. See `docs/standards/documentation-format.md` and `docs/standards/REPOSITORY-STANDARDS.md` for the Python/ML conventions that govern this repository.
