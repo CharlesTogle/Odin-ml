@@ -8,9 +8,8 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import get_registry
 from app.models.registry import ModelRegistry
-from app.schemas.common import ApiMetadata, ModuleStatus
+from app.schemas.common import ApiMetadata
 from app.schemas.pfp import (
-    PFPClassification,
     PFPClassifyRequest,
     PFPClassifyResponse,
 )
@@ -20,6 +19,8 @@ router = APIRouter(prefix="/api/v1/pfp", tags=["pfp"])
 
 
 def _run(registry: ModelRegistry, request: PFPClassifyRequest) -> PFPClassifyResponse:
+    if request.classification_mode.value == "STANDARD" and registry.pfp is None:
+        raise HTTPException(status_code=503, detail="pfp model not loaded; pending training")
     start = time.perf_counter()
     try:
         classification = pfp_service.classify(registry.pfp, request)

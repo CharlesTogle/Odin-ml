@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 
+from app.api.deps import get_registry
 from app.core.config import SERVICE_NAME, SERVICE_VERSION
 from app.models.registry import ModelRegistry
-from app.api.deps import get_registry
 
 router = APIRouter(tags=["health"])
 
@@ -19,8 +19,8 @@ async def health() -> dict:
 @router.get("/ready")
 async def ready(registry: ModelRegistry = Depends(get_registry)) -> dict:
     if registry.is_ready:
-        return {"status": "ready", "models": ["pfp", "forecaster", "anomaly"]}
-    return {"status": "not ready", "reason": "model artifacts not loaded"}
+        return {"status": "ready", "models": registry.loaded_modules}
+    return {"status": "not ready", "reason": "core model artifacts not loaded"}
 
 
 @router.get("/metrics")

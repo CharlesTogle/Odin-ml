@@ -31,15 +31,9 @@ def _calibrated_scores(classes: np.ndarray, proba: np.ndarray) -> dict[str, floa
     MDD requirement for calibrated scores.
     """
     class_labels = [str(c) for c in classes]
-    stability = sum(
-        p for c, p in zip(class_labels, proba) if c.startswith("Stable")
-    )
-    weight = sum(
-        p for c, p in zip(class_labels, proba) if "Obligated" in c
-    )
-    tolerance = sum(
-        p for c, p in zip(class_labels, proba) if "Tolerant" in c
-    )
+    stability = sum(p for c, p in zip(class_labels, proba) if c.startswith("Stable"))
+    weight = sum(p for c, p in zip(class_labels, proba) if "Obligated" in c)
+    tolerance = sum(p for c, p in zip(class_labels, proba) if "Tolerant" in c)
     return {
         "stability": round(stability, 4),
         "weight": round(weight, 4),
@@ -104,7 +98,9 @@ def classify_questionnaire(request: PFPClassifyRequest) -> PFPClassification:
     )
 
 
-def classify(model: ModuleModel, request: PFPClassifyRequest) -> PFPClassification:
+def classify(model: ModuleModel | None, request: PFPClassifyRequest) -> PFPClassification:
     if request.classification_mode.value == "QUESTIONNAIRE":
         return classify_questionnaire(request)
+    if model is None:
+        raise ValueError("pfp model not loaded; pending training")
     return classify_standard(model, request)

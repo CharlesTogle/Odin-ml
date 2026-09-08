@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_registry
@@ -24,9 +24,15 @@ def _run(registry: ModelRegistry, request: ForecastRequest) -> ForecastResponse:
     start = time.perf_counter()
     transactions = [t.model_dump() for t in request.historical_transactions]
     status = ModuleStatus.SUCCESS
-    try:
-        points, interval, level = forecast_service.forecast(registry.forecaster, request)
-    except Exception:
+    points = interval = level = None
+    model = registry.forecaster
+    if model is not None:
+        try:
+            points, interval, level = forecast_service.forecast(model, request)
+        except Exception:
+            points = interval = level = None
+
+    if points is None:
         total, std = forecast_service.cold_start_estimate(transactions)
         points = [ForecastPoint(date="next", amount=round(total, 2))]
         interval = ConfidenceInterval(
@@ -37,6 +43,8 @@ def _run(registry: ModelRegistry, request: ForecastRequest) -> ForecastResponse:
         )
         level = "fallback"
         status = ModuleStatus.FALLBACK
+
+    assert interval is not None and level is not None
 
     return ForecastResponse(
         response_id=str(uuid.uuid4()),
